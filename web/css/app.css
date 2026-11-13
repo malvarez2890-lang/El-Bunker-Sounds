@@ -363,3 +363,8 @@ body.has-mini .toast { --mini-h: 68px; }
 .card:active, .libcard:active, .tile:active { transform: scale(.97); }
 .row:active { background: rgba(255, 255, 255, .04); }
 .tab:active { opacity: .6; }
+
+/* Descargando la canción: el botón de play late suavemente */
+.loading { animation: loadingPulse 1s ease-in-out infinite; }
+@keyframes loadingPulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+.diag { font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-all; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); padding: 12px; color: var(--muted); -webkit-user-select: text; user-select: text; }

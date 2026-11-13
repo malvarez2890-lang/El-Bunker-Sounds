@@ -26,8 +26,10 @@ export function mountMini(parent) {
         h('div', { class: 'bar' }));
     }
     const btn = miniEl.querySelector('#mini-toggle');
-    clear(btn).append(icon(s.playing ? 'pause' : 'play'));
-    btn.setAttribute('aria-label', s.playing ? 'Pausar' : 'Reproducir');
+    const pl = player.isPlayingUI(s);
+    clear(btn).append(icon(pl ? 'pause' : 'play'));
+    btn.setAttribute('aria-label', pl ? 'Pausar' : 'Reproducir');
+    btn.classList.toggle('loading', !!s.loading);
     updateBar();
   };
   const updateBar = () => {
@@ -99,8 +101,10 @@ export function openPlayer() {
     const t = player.current();
     if (!t) { close(); return; }
     if (shownId !== t.id) { shownId = t.id; build(t); }
-    clear(els.play).append(icon(s.playing ? 'pause' : 'play'));
-    els.play.setAttribute('aria-label', s.playing ? 'Pausar' : 'Reproducir');
+    const pl = player.isPlayingUI(s);
+    clear(els.play).append(icon(pl ? 'pause' : 'play'));
+    els.play.setAttribute('aria-label', pl ? 'Pausar' : 'Reproducir');
+    els.play.classList.toggle('loading', !!s.loading);
     els.shuffle.classList.toggle('on', s.shuffle);
     els.shuffle.setAttribute('aria-pressed', String(s.shuffle));
     clear(els.repeat).append(icon(s.repeat === 'one' ? 'repeat1' : 'repeat'));

@@ -11,6 +11,7 @@ import { album, artist } from './views/album.js';
 import { library, favorites, recents, playlists, playlist } from './views/library.js';
 import { search } from './views/search.js';
 import { admin } from './views/admin.js';
+import { diagnostico } from './views/diagnostico.js';
 
 const app = document.getElementById('app');
 let router = null;
@@ -29,6 +30,7 @@ const ROUTES = [
   { re: /^\/album\/(\d+)$/, tab: null, view: album },
   { re: /^\/artista\/(\d+)$/, tab: null, view: artist },
   { re: /^\/admin$/, tab: null, view: admin },
+  { re: /^\/diagnostico$/, tab: null, view: diagnostico },
 ];
 
 async function logout() {
@@ -102,6 +104,7 @@ function openProfile(me, avatar) {
           try { await patch('/api/me', { name }); me.name = name; boot(); } catch (e) { toast(errorText(e)); }
         }),
         me.isAdmin ? item('shield', pending ? `Administración (${pending} pendiente${pending === 1 ? '' : 's'})` : 'Administración', () => go('#/admin')) : null,
+        item('wave', 'Diagnóstico del audio', () => go('#/diagnostico')),
         item('logout', 'Cerrar sesión', logout, 'danger')));
   });
 }

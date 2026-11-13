@@ -63,7 +63,7 @@ async function newPage(name) {
 const noSplash = (page) => page.locator('#splash').waitFor({ state: 'detached', timeout: 8000 }).catch(() => {});
 const settled = async (page) => {
   await page.waitForTimeout(380); // deja arrancar y terminar la transición de pantalla
-  await page.waitForFunction(() => !document.getAnimations().some((a) => a.playState === 'running' && a.effect?.target?.closest?.('.page')), null, { timeout: 5000 });
+  await page.waitForFunction(() => !document.getAnimations().some((a) => a.playState === 'running' && (a.effect?.target?.closest?.('.page') && !a.effect.target.closest('.eq, .loading, .skel'))), null, { timeout: 5000 });
 };
 const P = (page) => page.locator('.page:not(.off)');
 const shot = async (page, name) => {
@@ -338,6 +338,56 @@ test('el scroll de una lista no mueve el resto de la app', { skip: !pw }, async 
   assert.equal(r.win, 0);
   assert.equal(r.tabbarY, r.vh, 'la barra de abajo queda fija');
   assert.equal(r.topbarY, 0, 'la barra de arriba queda fija');
+});
+
+test('reproducción: pasa sola a la siguiente, la barra salta de verdad y retoma donde ibas', { skip: !pw }, async () => {
+  const { page } = admin;
+  await noSplash(page);
+  await page.goto(`${base}/#/lista/album`); await settled(page);
+  await P(page).locator('.card', { hasText: 'Neon, Fumo' }).click(); await settled(page);
+  await P(page).getByRole('button', { name: 'Reproducir', exact: true }).first().click();
+  await page.waitForFunction(() => navigator.mediaSession.metadata?.title === 'Luci Accese');
+  await page.waitForFunction(() => window.__audios[0].currentTime > 1 && !window.__audios[0].paused);
+
+  // 1) la barra de reproducción salta de verdad (al 80% de una canción de 8 s)
+  await page.locator('.mini .main').click();
+  const pl = page.locator('.player');
+  await pl.waitFor();
+  await pl.locator('.range').evaluate((el) => { el.value = 800; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); });
+  await page.waitForFunction(() => window.__audios[0].currentTime > 6 && window.__audios[0].currentTime < 7.9);
+  // 2) al terminar, empieza sola la siguiente (sin tocar nada)
+  await page.waitForFunction(() => navigator.mediaSession.metadata?.title === 'Velocità', null, { timeout: 8000 });
+  await page.waitForFunction(() => !window.__audios[0].paused && window.__audios[0].currentTime < 3);
+  assert.equal(await pl.locator('h2').innerText(), 'Velocità');
+  // 3) y la que sigue después de esa también
+  await pl.locator('.range').evaluate((el) => { el.value = 900; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); });
+  await page.waitForFunction(() => navigator.mediaSession.metadata?.title === 'Corpi Elettrici', null, { timeout: 8000 });
+  await page.getByRole('button', { name: 'Cerrar reproductor' }).click();
+  await page.locator('.player').waitFor({ state: 'detached' });
+
+  // 4) retomar: se guarda la posición al salir y, al volver y apretar play, sigue desde ahí (no desde cero)
+  await page.waitForFunction(() => window.__audios[0].currentTime > 3);
+  await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('ebs_player_v1')));
+  assert.ok(saved.pos >= 3, `se guardó la posición (${saved.pos})`);
+  await page.reload();
+  await noSplash(page);
+  await page.locator('.mini').waitFor();
+  assert.equal(await page.locator('.mini .t').innerText(), 'Corpi Elettrici');
+  const shownBefore = await page.evaluate(() => getComputedStyle(document.querySelector('.mini')).getPropertyValue('--p'));
+  assert.ok(Number(shownBefore) > 0.3, 'la barra muestra el avance guardado');
+  await page.locator('#mini-toggle').click();
+  await page.waitForFunction((pos) => window.__audios[0] && !window.__audios[0].paused && window.__audios[0].currentTime >= pos - 0.6, saved.pos, { timeout: 8000 });
+});
+
+test('diagnóstico del audio: la pantalla muestra el estado y los eventos', { skip: !pw }, async () => {
+  const { page } = admin;
+  await page.goto(`${base}/#/diagnostico`); await settled(page);
+  await P(page).getByRole('heading', { name: 'Diagnóstico del audio' }).waitFor();
+  const txt = await P(page).locator('.diag').innerText();
+  assert.match(txt, /memoria \(blob\)/);
+  assert.match(txt, /Últimos eventos/);
+  assert.match(txt, /descarga lista/);
 });
 
 test('amigo nuevo: queda pendiente y el admin lo aprueba desde la app', { skip: !pw }, async () => {
