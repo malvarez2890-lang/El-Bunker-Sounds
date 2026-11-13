@@ -5,7 +5,7 @@ Uso (en el servidor, fuera de Docker):   python3 scripts/descubrir-onkyo.py [IP_
  1) Busca en tu red los equipos de audio/video (UPnP/DLNA) y dice si pueden "recibir música" (MediaRenderer) o solo "mostrar biblioteca".
  2) Si le das la IP, prueba el puerto de control de Onkyo (60128) y le pregunta si está encendido.
 """
-import socket, struct, sys, re, time, ipaddress, subprocess, urllib.request
+import socket, struct, sys, re, time, ipaddress, subprocess, urllib.request, urllib.error
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 
@@ -184,25 +184,53 @@ def puertos_abiertos(ip, puertos, timeout=0.3):
     with ThreadPoolExecutor(400) as ex:
         return sorted(p for p in ex.map(probe, puertos) if p)
 
-DESC_PATHS = ['/description.xml', '/', '/upnp/desc.xml', '/rootDesc.xml', '/MediaRenderer/desc.xml', '/dmr/rootdesc.xml', '/Basic/rootDesc.xml', '/dd.xml', '/DeviceDescription.xml']
+DESC_PATHS = ['/description.xml', '/desc.xml', '/DeviceDescription.xml', '/rootDesc.xml', '/upnp/desc.xml', '/upnp/device.xml', '/dmr/rootdesc.xml',
+              '/dmr/desc.xml', '/MediaRenderer/desc.xml', '/MediaRenderer.xml', '/xml/device_description.xml', '/xml/desc.xml', '/device.xml',
+              '/dev/desc.xml', '/dd.xml', '/upnp.xml', '/rootdesc.xml', '/Basic/rootDesc.xml', '/DLNA/desc.xml', '/ssdp/device-desc.xml']
+
+def _get(url):
+    """Devuelve (estado, tipo, cuerpo) o None si no hay respuesta. Un 404 también es una respuesta."""
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (descubrir-onkyo)'})
+    try:
+        with urllib.request.urlopen(req, timeout=2) as r:
+            return r.status, r.headers.get('Content-Type', ''), r.read(200000)
+    except urllib.error.HTTPError as e:
+        return e.code, e.headers.get('Content-Type', '') if e.headers else '', b''
+    except Exception:
+        return None
 
 def upnp_por_puertos(ip):
-    """Sin usar mensajes "a todos": prueba los puertos del equipo y busca la descripción UPnP/DLNA directamente."""
-    puertos = [p for p in list(range(1, 1025)) + list(range(1025, 10000)) + list(range(49152, 65536)) if p != 60128]
+    """Sin usar mensajes "a todos": prueba los puertos del equipo, mira qué contesta cada uno y busca la descripción UPnP/DLNA."""
+    puertos = [p for p in list(range(1, 10000)) + list(range(49152, 65536)) if p != 60128]
     print('  Probando puertos del equipo (unos 15 segundos)…')
     abiertos = puertos_abiertos(ip, puertos)
     print('  Puertos abiertos:', ', '.join(map(str, abiertos)) or 'ninguno')
     hallados = {}
     for p in abiertos:
-        for path in DESC_PATHS:
-            url = f'http://{ip}:{p}{path}'
-            try:
-                body = urllib.request.urlopen(url, timeout=2).read(200000)
-            except Exception:
-                continue
-            if b'urn:schemas-upnp-org:device-1-0' in body:
-                hallados[url] = ip
-                break
+        if p == 23:  # telnet: no se toca
+            continue
+        base = f'http://{ip}:{p}'
+        pistas = []
+        r = _get(base + '/')
+        if r is None:
+            print(f'  · puerto {p}: no responde HTTP')
+            continue
+        st, ct, body = r
+        texto = body[:400].decode('utf-8', 'replace').replace('\n', ' ').strip()
+        print(f'  · puerto {p}: GET / → {st} {ct.split(";")[0]} {len(body)} bytes  {texto[:110]!r}')
+        if b'urn:schemas-upnp-org:device-1-0' in body:
+            hallados[base + '/'] = ip
+            continue
+        pistas += re.findall(rb'[\w./-]+\.xml', body)[:10]
+        paths = DESC_PATHS + ['/' + h.decode().lstrip('/') for h in pistas]
+        for path in paths:
+            r2 = _get(base + path)
+            if r2 and r2[0] == 200:
+                if b'urn:schemas-upnp-org:device-1-0' in r2[2]:
+                    hallados[base + path] = ip
+                    print(f'    ✅ descripción UPnP en {base + path}')
+                    break
+                print(f'    (200 en {path}, pero no es una descripción UPnP)')
     return hallados
 
 def main():
@@ -266,7 +294,7 @@ def main():
             print('  No contestó a la pregunta directa. Pruebo por puertos…')
             directo = upnp_por_puertos(ip)
         if not directo:
-            print('  El equipo no muestra ningún servicio DLNA/UPnP. Ponlo en la entrada NET (red) con su control remoto y vuelve a correr esto.')
+            print('  No encontré una descripción DLNA/UPnP. Arriba están las respuestas de cada puerto (con eso se puede seguir buscando).')
         for loc, addr in directo.items():
             d = describe(loc)
             if not d:
