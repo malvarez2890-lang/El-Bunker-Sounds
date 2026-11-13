@@ -50,6 +50,9 @@ App web (PWA) para escuchar la música casera del dueño y compartirla con ~10 a
 ## Problemas conocidos (iPhone)
 - Al tocar la tarjeta de la pantalla de bloqueo, iOS abrió OTRA web app del dueño en vez de El Búnker Sound. Se agregó `id` y `start_url` propios (`/?app=el-bunker-sound`) al manifest; hay que **quitar y volver a instalar** la app para que iOS lo tome. Si persiste, investigar (¿otra PWA del mismo dominio `*.ts.net`? ¿instalada desde Safari o desde otra?).
 
+- Confirmado con capturas del dueño: en la pantalla de bloqueo se ven carátula, título, artista, barra y botones. Tocar la tarjeta abre **otra** web app ("Numa", de otro dominio) = error conocido de iOS 26 (Apple FB25262874, sin solución web; ver foro de Apple 852546). NO es del código ni del dominio. Prueba sugerida: quitar temporalmente el ícono de la otra PWA.
+- iOS muestra "±10 s" en la tarjeta si se registran `seekbackward/seekforward`; por eso NO se registran (así aparecen anterior/siguiente).
+
 ## Pendiente / ideas para después
 - Probar en iPhone real y ajustar (sesión PWA vs Safari, Media Session, `ended`→siguiente en segundo plano).
 - Endurecer la política de Tailscale (que `tag:musica` no alcance otros equipos) — hacerlo junto al dueño, sin tocar su política a ciegas.

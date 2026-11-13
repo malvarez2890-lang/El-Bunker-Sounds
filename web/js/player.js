@@ -207,8 +207,7 @@ if ('mediaSession' in navigator) {
   set('pause', () => audio.pause());
   set('previoustrack', () => prev());
   set('nexttrack', () => next());
-  set('seekbackward', (d) => seek(audio.currentTime - (d?.seekOffset || 10)));
-  set('seekforward', (d) => seek(audio.currentTime + (d?.seekOffset || 10)));
+  // OJO: si se registran seekbackward/seekforward, iOS muestra "±10 s" en vez de canción anterior/siguiente. Para música no se registran.
   set('seekto', (d) => { if (d.fastSeek && audio.fastSeek) audio.fastSeek(d.seekTime); else seek(d.seekTime); });
   set('stop', () => { audio.pause(); seek(0); });
 }
