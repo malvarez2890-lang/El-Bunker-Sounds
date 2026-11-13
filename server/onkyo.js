@@ -114,12 +114,15 @@ async function soap(url, service, action, args = '') {
 }
 const tag = (xml, name) => unesc(new RegExp(`<${name}[^>]*>([\\s\\S]*?)</${name}>`).exec(xml)?.[1] ?? '');
 
-export function didl(track, url, mime) {
+const DLNA_FLAGS = 'DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000';
+const DLNA_PN = { 'audio/mpeg': 'DLNA.ORG_PN=MP3;', 'audio/mp4': '', 'audio/wav': '' };
+export function didl(track, url, mime, dlna = false) {
+  const info = dlna ? `http-get:*:${mime}:${DLNA_PN[mime] || ''}${DLNA_FLAGS}` : `http-get:*:${mime}:*`;
   return `<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">`
     + `<item id="${track.id}" parentID="0" restricted="1"><dc:title>${esc(track.title)}</dc:title>`
     + `<dc:creator>${esc(track.artistName)}</dc:creator><upnp:artist>${esc(track.artistName)}</upnp:artist><upnp:album>${esc(track.albumTitle)}</upnp:album>`
     + `<upnp:class>object.item.audioItem.musicTrack</upnp:class>`
-    + `<res protocolInfo="http-get:*:${mime}:*">${esc(url)}</res></item></DIDL-Lite>`;
+    + `<res protocolInfo="${esc(info)}">${esc(url)}</res></item></DIDL-Lite>`;
 }
 
 const AVT = 'urn:schemas-upnp-org:service:AVTransport:1';
@@ -186,6 +189,7 @@ export function createOnkyo({ config, db, lib, log, transcoder }) {
     let size;
     try { size = fs.statSync(file).size; } catch { return fail(404); }
     const base = { 'content-type': MIME[m[2]], 'accept-ranges': 'bytes', 'cache-control': 'no-store', 'transfermode.dlna.org': 'Streaming' };
+    if (m[2] === 'mp3') base['contentfeatures.dlna.org'] = `DLNA.ORG_PN=MP3;${DLNA_FLAGS}`;
     let start = 0;
     let end = size - 1;
     let code = 200;
@@ -280,7 +284,23 @@ export function createOnkyo({ config, db, lib, log, transcoder }) {
     if (mp3) { await mp3.ensure(t.id); const n = S.queue[i + 1]; if (n) mp3.prefetch(n.id); } // el MP3 de esta (y la siguiente) debe existir antes de enviar el enlace
     const { url, mime } = mintUrl(t.id);
     S.index = i; S.pos = 0; S.dur = t.duration || 0; S.sawPlaying = false; S.startedAt = Date.now(); S.state = 'loading'; S.err = null;
-    await av('SetAVTransportURI', `<CurrentURI>${esc(url)}</CurrentURI><CurrentURIMetaData>${esc(didl(t, url, mime))}</CurrentURIMetaData>`);
+    // Algunos equipos rechazan (error 501) ciertos metadatos: se prueba normal, luego estilo DLNA completo, y al final sin metadatos.
+    const metas = [didl(t, url, mime), didl(t, url, mime, true), ''];
+    let setErr;
+    for (let k = 0; k < metas.length; k++) {
+      try {
+        await av('SetAVTransportURI', `<CurrentURI>${esc(url)}</CurrentURI><CurrentURIMetaData>${esc(metas[k])}</CurrentURIMetaData>`);
+        setErr = null;
+        if (k) log.info({ intento: k + 1 }, 'Onkyo: aceptó el enlace con otros metadatos');
+        break;
+      } catch (e) {
+        setErr = e;
+        log.warn({ err: e.message, intento: k + 1 }, 'Onkyo: rechazó el enlace');
+        try { await av('Stop'); } catch { /* ya estaba detenido */ }
+        await sleep(cfg.retryMs);
+      }
+    }
+    if (setErr) throw setErr;
     let last;
     for (let k = 0; k < 4; k++) { // justo tras cambiar de entrada, el Onkyo a veces rechaza el primer Play
       try { await av('Play', '<Speed>1</Speed>'); last = null; break; } catch (e) { last = e; await sleep(cfg.retryMs); }

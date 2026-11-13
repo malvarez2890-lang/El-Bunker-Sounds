@@ -257,6 +257,20 @@ describe('Onkyo: preparar el MP3 no cuelga la petición, y los fallos se explica
     await until(async () => { const s = (await A('GET', '/api/onkyo')).json(); return s.index === 1 && s.state === 'playing'; }, 15000);
   });
 
+  test('si el Onkyo rechaza el enlace (error 501), reintenta con otros metadatos hasta que lo acepta', async () => {
+    await A('POST', '/api/onkyo/control', { action: 'stop' });
+    fake.av.metas.length = 0;
+    fake.av.rejectSets = 2;
+    const r = await A('POST', '/api/onkyo/play', { ids: [ids[1]] });
+    assert.equal(r.statusCode, 200, r.body);
+    await until(async () => (await A('GET', '/api/onkyo')).json().state === 'playing', 15000);
+    assert.equal(fake.av.metas.length, 3);
+    const un = (x) => x.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+    assert.match(un(fake.av.metas[0]), /protocolInfo="http-get:\*:audio\/mpeg:\*"/);
+    assert.match(un(fake.av.metas[1]), /DLNA\.ORG_PN=MP3/);
+    assert.equal(fake.av.metas[2], '');
+  });
+
   test('si no se puede preparar el MP3, la app lo dice (no solo "problema del servidor")', async () => {
     t.ctx.db.prepare("UPDATE tracks SET src_rel='no-existe.wav' WHERE id=?").run(ids[0]);
     const dir = path.join(t.dataDir, 'onkyo-mp3');
