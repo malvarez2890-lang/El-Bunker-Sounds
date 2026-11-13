@@ -375,6 +375,8 @@ html.land #rot { inset: auto; width: 100vh; height: 100vw; left: calc((100vw - 1
 html.land.ccw #rot { transform: rotate(-90deg); --safe-t: env(safe-area-inset-left); --safe-b: env(safe-area-inset-right); }
 html.land.cw #rot { transform: rotate(90deg); --safe-t: env(safe-area-inset-right); --safe-b: env(safe-area-inset-left); }
 html.land #app { height: 100%; }
+#rot { transition: opacity .16s ease; }
+html.rotating #rot { opacity: 0; transition: none; }
 
 /* ---------- Gestos: zonas donde el dedo arrastra (el navegador no debe interferir) ---------- */
 .mini { touch-action: none; }

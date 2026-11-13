@@ -120,6 +120,7 @@ document.addEventListener('gesturestart', (e) => e.preventDefault());
 document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
 // ---- siempre vertical: si el teléfono se gira, la app se contra-gira (iOS no deja bloquear la rotación a una web app) ----
 const root = document.documentElement;
+let orientKey = null, rotTimer = null;
 function orient() {
   const phone = Math.min(screen.width, screen.height) <= 500;
   const land = phone && window.innerWidth > window.innerHeight;
@@ -128,9 +129,21 @@ function orient() {
   root.classList.toggle('land', land);
   root.classList.toggle('ccw', land && ccw);
   root.classList.toggle('cw', land && !ccw);
+  // iOS anima el giro por su cuenta y, junto con el contra-giro, se ve un destello torcido/al revés: se esconde la app mientras dura.
+  const key = `${land}-${land ? ccw : ''}`;
+  if (orientKey !== null && key !== orientKey) {
+    root.classList.add('rotating');
+    clearTimeout(rotTimer);
+    rotTimer = setTimeout(() => root.classList.remove('rotating'), 550);
+  }
+  orientKey = key;
 }
 window.addEventListener('resize', orient);
-window.addEventListener('orientationchange', orient);
+window.addEventListener('orientationchange', () => { // aviso temprano: se esconde antes de que empiece la animación del sistema
+  root.classList.add('rotating');
+  clearTimeout(rotTimer);
+  rotTimer = setTimeout(() => root.classList.remove('rotating'), 650);
+});
 screen.orientation?.addEventListener?.('change', orient);
 orient();
 

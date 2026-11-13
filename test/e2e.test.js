@@ -485,6 +485,24 @@ test('gestos: mini reproductor, tarjeta del reproductor y hojas se manejan desli
   await page.locator('.sheet').waitFor({ state: 'detached', timeout: 3000 });
 });
 
+test('al girar el teléfono la app se esconde durante el giro (sin destello al revés) y reaparece vertical', { skip: !pw }, async () => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, screen: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'es-CL', serviceWorkers: 'block' });
+  const page = await ctx.newPage();
+  await page.goto(base);
+  await page.locator('#splash').waitFor({ state: 'detached', timeout: 8000 });
+  assert.equal(await page.evaluate(() => document.documentElement.classList.contains('rotating')), false);
+  await page.setViewportSize({ width: 844, height: 390 });
+  assert.equal(await page.evaluate(() => document.documentElement.classList.contains('rotating')), true, 'se esconde al empezar el giro');
+  assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('rot')).opacity), '0');
+  await page.waitForFunction(() => !document.documentElement.classList.contains('rotating'), null, { timeout: 3000 });
+  await page.waitForTimeout(300);
+  assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('rot')).opacity), '1', 'reaparece');
+  assert.equal(await page.evaluate(() => document.documentElement.classList.contains('land')), true);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForFunction(() => !document.documentElement.classList.contains('rotating') && !document.documentElement.classList.contains('land'), null, { timeout: 3000 });
+  await ctx.close();
+});
+
 test('siempre vertical: con el teléfono de lado la app se contra-gira y sigue en vertical', { skip: !pw }, async () => {
   const ctx = await browser.newContext({ viewport: { width: 844, height: 390 }, screen: { width: 844, height: 390 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'es-CL', serviceWorkers: 'block' });
   const page = await ctx.newPage();
