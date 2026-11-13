@@ -275,8 +275,18 @@ export function createOnkyo({ config, db, lib, log, transcoder }) {
   // ---- cola y reproducción ----
   const S = { queue: [], index: -1, state: 'idle', startedAt: 0, pos: 0, dur: 0, sawPlaying: false, busy: null, err: null };
   let timer = null;
-  const stopPolling = () => { if (timer) clearInterval(timer); timer = null; };
-  const startPolling = () => { if (!timer) { timer = setInterval(() => poll().catch(() => {}), cfg.pollMs); timer.unref?.(); } };
+  const stopPolling = () => { if (timer) clearTimeout(timer); timer = null; };
+  // Se pregunta cada ~2 s, y cada ~0,4 s en los últimos segundos de la canción: así el cambio a la siguiente casi no se nota.
+  function startPolling() {
+    if (timer) return;
+    const near = S.state === 'playing' && S.dur && S.dur - S.pos < 8;
+    timer = setTimeout(async () => {
+      timer = null;
+      try { await poll(); } catch { /* sigue */ }
+      if (['playing', 'loading', 'paused'].includes(S.state) || S.busy) startPolling();
+    }, near ? cfg.pollNearMs : cfg.pollMs);
+    timer.unref?.();
+  }
 
   async function loadAndPlay(i) {
     const t = S.queue[i];
@@ -284,14 +294,21 @@ export function createOnkyo({ config, db, lib, log, transcoder }) {
     if (mp3) { await mp3.ensure(t.id); const n = S.queue[i + 1]; if (n) mp3.prefetch(n.id); } // el MP3 de esta (y la siguiente) debe existir antes de enviar el enlace
     const { url, mime } = mintUrl(t.id);
     S.index = i; S.pos = 0; S.dur = t.duration || 0; S.sawPlaying = false; S.startedAt = Date.now(); S.state = 'loading'; S.err = null;
-    // Siempre se parte de un transporte limpio: el Onkyo real queda "trabado" (rechaza todo con 501) si se le cambia el enlace en pleno movimiento.
-    try { await av('Stop'); } catch { /* ya estaba detenido */ }
-    for (let k = 0; k < 6; k++) {
-      let st = '';
-      try { st = tag(await av('GetTransportInfo'), 'CurrentTransportState'); } catch { break; }
-      if (st !== 'PLAYING' && st !== 'TRANSITIONING') break;
-      await sleep(300);
+    // Se parte de un transporte limpio: el Onkyo real queda "trabado" (rechaza todo con 501) si se le cambia el enlace en pleno movimiento.
+    // Si ya estaba detenido (pasó solo a la siguiente), no se pierde tiempo deteniéndolo otra vez.
+    const t0 = Date.now();
+    let st0 = '';
+    try { st0 = tag(await av('GetTransportInfo'), 'CurrentTransportState'); } catch { /* se intenta igual */ }
+    if (st0 !== 'STOPPED' && st0 !== 'NO_MEDIA_PRESENT') {
+      try { await av('Stop'); } catch { /* ya estaba detenido */ }
+      for (let k = 0; k < 8; k++) {
+        let st = '';
+        try { st = tag(await av('GetTransportInfo'), 'CurrentTransportState'); } catch { break; }
+        if (st !== 'PLAYING' && st !== 'TRANSITIONING') break;
+        await sleep(150);
+      }
     }
+    const t1 = Date.now();
     // Algunos equipos rechazan (error 501) ciertos metadatos: se prueba normal, luego estilo DLNA completo, y al final sin metadatos.
     const metas = [didl(t, url, mime), didl(t, url, mime, true), ''];
     let setErr;
@@ -309,12 +326,14 @@ export function createOnkyo({ config, db, lib, log, transcoder }) {
       }
     }
     if (setErr) throw setErr;
+    const t2 = Date.now();
     let last;
     for (let k = 0; k < 4; k++) { // justo tras cambiar de entrada, el Onkyo a veces rechaza el primer Play
       try { await av('Play', '<Speed>1</Speed>'); last = null; break; } catch (e) { last = e; await sleep(cfg.retryMs); }
     }
     if (last) throw last;
     S.state = 'playing';
+    log.info({ preparar_ms: t1 - t0, enlace_ms: t2 - t1, play_ms: Date.now() - t2 }, 'Onkyo: canción enviada');
     startPolling();
   }
 
@@ -327,7 +346,11 @@ export function createOnkyo({ config, db, lib, log, transcoder }) {
       if (st === 'PLAYING') info = await av('GetPositionInfo');
     } catch { return; }
     if (info) {
-      S.pos = hms(tag(info, 'RelTime'));
+      const reported = hms(tag(info, 'RelTime'));
+      // Justo después de saltar de minuto el Onkyo puede seguir diciendo la posición vieja unos instantes: no se la creemos.
+      const expected = S.seekAt && Date.now() - S.seekAt < 4000 ? S.seekTo + (Date.now() - S.seekAt) / 1000 : null;
+      if (expected == null || reported >= S.seekTo - 1) { S.pos = reported; if (expected != null) S.seekAt = 0; } // ya llegó al nuevo minuto
+      else S.pos = Math.min(expected, S.dur || expected);
       const d = hms(tag(info, 'TrackDuration'));
       if (d) S.dur = d;
     }
@@ -390,7 +413,7 @@ export function createOnkyo({ config, db, lib, log, transcoder }) {
     await settle(job);
   }
 
-  out.control = async (action) => {
+  out.control = async (action, arg) => {
     if (!(await idle())) return;
     if (!S.queue.length && action !== 'stop') throw new Error('nada_que_controlar');
     switch (action) {
@@ -400,6 +423,12 @@ export function createOnkyo({ config, db, lib, log, transcoder }) {
       case 'next': if (S.index + 1 < S.queue.length) await startLoad(S.index + 1); break;
       case 'prev': await startLoad(S.pos > 4 ? S.index : Math.max(0, S.index - 1)); break;
       case 'jump': break;
+      case 'seek': {
+        const to = Math.max(0, Math.min(Number(arg) || 0, (S.dur || 1e9) - 1));
+        await av('Seek', `<Unit>REL_TIME</Unit><Target>${toHms(to)}</Target>`);
+        S.pos = to; S.seekTo = to; S.seekAt = Date.now();
+        break;
+      }
       default: throw new Error('accion_invalida');
     }
   };

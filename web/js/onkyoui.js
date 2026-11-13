@@ -39,6 +39,14 @@ export function startRemote(s) {
   player.setRemote({
     playing: playingNow, position: interp, duration: () => rs?.track?.duration || 0,
     toggle: () => rcall(playingNow() ? { action: 'pause' } : rs?.state === 'stopped' ? { action: 'jump', index: rs.index } : { action: 'resume' }),
+    seek: async (sec) => {
+      const before = { pos: rs?.position, at: rsAt };
+      if (rs) { rs.position = sec; rsAt = Date.now(); player.tickTime(); } // la barra se queda donde la soltaste mientras el Onkyo responde
+      try { setStatus(await post('/api/onkyo/control', { action: 'seek', position: sec })); } catch (e) {
+        if (rs && before.pos != null) { rs.position = before.pos; rsAt = before.at; }
+        toast(e?.code === 'onkyo_rechazo' ? 'El Onkyo no permite saltar de minuto con esta canción.' : errMsg(e));
+      }
+    },
     next: () => rcall({ action: 'next' }), prev: () => rcall({ action: 'prev' }), jump: (i) => rcall({ action: 'jump', index: i }),
     leave: () => leaveRemote(),
   });

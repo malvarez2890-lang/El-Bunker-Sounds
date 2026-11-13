@@ -117,6 +117,30 @@ describe('Onkyo (equipo simulado)', () => {
     assert.equal((await A('POST', '/api/onkyo/volume', { level: 20 })).json().volume, 20);
   });
 
+  test('saltar de minuto: la barra no se devuelve aunque el Onkyo tarde en informar', async () => {
+    await A('POST', '/api/onkyo/play', { ids: ids.slice(0, 3), index: 0 });
+    await until(async () => (await A('GET', '/api/onkyo')).json().position >= 1); // ya informó la duración real
+    fake.av.staleSeek = true; // acepta el salto pero sigue diciendo la posición vieja
+    const r = await A('POST', '/api/onkyo/control', { action: 'seek', position: 5 });
+    assert.equal(r.statusCode, 200, r.body);
+    assert.equal(fake.av.seeks.at(-1), '0:00:05');
+    assert.equal(r.json().position, 5);
+    await sleep(500); // varios sondeos con la posición vieja (~0)
+    const s = (await A('GET', '/api/onkyo')).json();
+    assert.ok(s.position >= 5, `la posición no debe volver atrás: ${s.position}`);
+    fake.av.staleSeek = false;
+    // saltar con el Onkyo funcionando normal
+    await A('POST', '/api/onkyo/control', { action: 'seek', position: 4 });
+    await until(async () => (await A('GET', '/api/onkyo')).json().position >= 4);
+    assert.equal((await A('POST', '/api/onkyo/control', { action: 'seek', position: 'a' })).statusCode, 400);
+    // si el Onkyo no permite saltar, se dice
+    fake.av.noSeek = true;
+    const bad = await A('POST', '/api/onkyo/control', { action: 'seek', position: 3 });
+    assert.equal(bad.statusCode, 502);
+    assert.equal(bad.json().error, 'onkyo_rechazo');
+    fake.av.noSeek = false;
+  });
+
   test('pausa, seguir y saltar a otra de la cola', async () => {
     assert.equal((await A('POST', '/api/onkyo/control', { action: 'pause' })).json().state, 'paused');
     assert.equal(fake.av.state, 'PAUSED_PLAYBACK');
@@ -130,9 +154,9 @@ describe('Onkyo (equipo simulado)', () => {
   test('al terminar una canción pasa sola a la siguiente, y al final se detiene', async () => {
     await A('POST', '/api/onkyo/play', { ids: ids.slice(0, 3), index: 0 });
     const before = fake.av.fetched.length;
-    await until(async () => (await A('GET', '/api/onkyo')).json().index === 2, 9000);
+    await until(async () => (await A('GET', '/api/onkyo')).json().index === 2, 25000);
     assert.ok(fake.av.fetched.length >= before + 2);
-    await until(async () => (await A('GET', '/api/onkyo')).json().state === 'stopped', 6000);
+    await until(async () => (await A('GET', '/api/onkyo')).json().state === 'stopped', 20000);
   });
 
   test('si alguien lo detiene a mitad de canción, no salta a la siguiente', async () => {

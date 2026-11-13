@@ -699,6 +699,12 @@ test('Onkyo: el administrador lo ve, envía la cola, controla y el amigo no tien
   await card.getByRole('button', { name: 'Reproducir' }).click();
   await until(() => fakeOnkyo.av.state === 'PLAYING');
   assert.equal(await page.evaluate(() => !window.__a() || window.__a().paused), true, 'el teléfono sigue callado');
+  // la barra de la tarjeta salta de minuto en el Onkyo (y no se devuelve)
+  await page.waitForFunction(() => document.querySelector('.player .times span:last-child')?.textContent === '0:08');
+  await page.locator('.range').evaluate((el) => { el.value = 750; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); });
+  await until(() => fakeOnkyo.av.seeks.includes('0:00:06'));
+  await page.waitForTimeout(1200);
+  assert.ok(Number(await page.locator('.range').inputValue()) >= 700, 'la barra se queda en el nuevo minuto');
   await page.waitForTimeout(450);
   await shot(page, '62-onkyo-control-remoto');
   await card.getByRole('button', { name: 'Cerrar reproductor' }).click();

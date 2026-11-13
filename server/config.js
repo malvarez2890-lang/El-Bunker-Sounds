@@ -54,6 +54,7 @@ export function loadConfig(overrides = {}) {
       fastMs: Number(e.ONKYO_FAST_MS || 8000),       // cuánto espera la app antes de responder "cargando" (la conversión sigue en segundo plano)
       endSlackSec: Number(e.ONKYO_END_SLACK || 6),   // si se detiene a menos de estos segundos del final, se considera que terminó
       pollMs: Number(e.ONKYO_POLL_MS || 2000),
+      pollNearMs: Number(e.ONKYO_POLL_NEAR_MS || Math.min(400, Number(e.ONKYO_POLL_MS || 2000))),
       retryMs: Number(e.ONKYO_RETRY_MS || 1500),
       bootWaitMs: Number(e.ONKYO_BOOT_WAIT_MS || 1500),
       inputWaitMs: Number(e.ONKYO_INPUT_WAIT_MS || 2500),

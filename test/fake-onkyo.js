@@ -8,7 +8,7 @@ const listen = (srv) => new Promise((r) => srv.listen(0, '127.0.0.1', () => r(sr
 export async function startFakeOnkyo({ playMs = 1500, durSec = 8, singleConn = true } = {}) {
   const dev = { power: false, input: '05', volume: 10 };
   const log = []; // todo lo que le piden, para comprobarlo
-  const av = { uri: null, meta: null, state: 'NO_MEDIA_PRESENT', startedAt: 0, fetched: [], rejectPlays: 0, rejectSets: 0, metas: [] };
+  const av = { uri: null, meta: null, state: 'NO_MEDIA_PRESENT', startedAt: 0, fetched: [], rejectPlays: 0, rejectSets: 0, metas: [], offset: 0, noSeek: false, seeks: [], staleSeek: false };
 
   let active = 0;
   const iscp = net.createServer((sock) => {
@@ -59,7 +59,7 @@ export async function startFakeOnkyo({ playMs = 1500, durSec = 8, singleConn = t
         if (av.rejectSets > 0) { av.rejectSets--; res.statusCode = 500; return res.end('<errorCode>501</errorCode>'); }
         av.uri = /<CurrentURI>([^<]*)<\/CurrentURI>/.exec(body)?.[1].replace(/&amp;/g, '&');
         av.meta = /<CurrentURIMetaData>([^<]*)<\/CurrentURIMetaData>/.exec(body)?.[1];
-        av.state = 'STOPPED';
+        av.state = 'STOPPED'; av.offset = 0;
         return ok();
       }
       if (action === 'Play') {
@@ -71,11 +71,19 @@ export async function startFakeOnkyo({ playMs = 1500, durSec = 8, singleConn = t
         av.state = 'PLAYING'; av.startedAt = Date.now();
         return ok();
       }
+      if (action === 'Seek') {
+        const target = /<Target>([^<]*)<\/Target>/.exec(body)?.[1] || '';
+        if (av.noSeek) { res.statusCode = 500; return res.end('<errorCode>401</errorCode>'); }
+        const [h, m, sec] = target.split(':').map(Number);
+        av.seeks.push(target);
+        if (!av.staleSeek) { av.offset = h * 3600 + m * 60 + sec; av.startedAt = Date.now(); } // staleSeek: acepta pero sigue informando la posición vieja un rato
+        return ok();
+      }
       if (action === 'Pause') { av.state = 'PAUSED_PLAYBACK'; return ok(); }
       if (action === 'Stop') { av.state = 'STOPPED'; return ok(); }
       if (action === 'GetTransportInfo') return ok(`<CurrentTransportState>${state()}</CurrentTransportState>`);
       if (action === 'GetPositionInfo') {
-        const el = Math.min(durSec, Math.floor((Date.now() - av.startedAt) / 1000 * (durSec / (playMs / 1000))));
+        const el = Math.min(durSec, Math.floor(av.offset + (Date.now() - av.startedAt) / 1000 * (durSec / (playMs / 1000))));
         return ok(`<TrackDuration>0:00:0${durSec}</TrackDuration><RelTime>0:00:0${el}</RelTime>`);
       }
       res.statusCode = 501; res.end();

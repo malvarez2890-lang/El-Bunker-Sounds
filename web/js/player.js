@@ -299,7 +299,8 @@ export function prev() {
 }
 
 export function seek(sec) {
-  if (remote || !Number.isFinite(sec)) return; // el Onkyo no permite saltar de minuto
+  if (!Number.isFinite(sec)) return;
+  if (remote) return remote.seek(sec); // el Onkyo salta de minuto por DLNA (Seek)
   const d = duration();
   const target = Math.max(0, d ? Math.min(sec, d) : sec);
   if (!isLoaded()) { pendingSeek = target; restorePos = target; emit('time'); return; } // todavía descargando: se aplica al cargar

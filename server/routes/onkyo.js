@@ -24,9 +24,10 @@ export default async function onkyoRoutes(app, { auth, onkyo }) {
 
   app.post('/api/onkyo/control', lim(60), async (req, reply) => {
     if (!need(reply)) return;
-    const { action, index } = req.body || {};
+    const { action, index, position } = req.body || {};
     try {
       if (action === 'jump') await onkyo.jump(index);
+      else if (action === 'seek') { if (!Number.isFinite(position)) return reply.code(400).send({ error: 'datos_invalidos' }); await onkyo.control('seek', position); }
       else await onkyo.control(String(action));
     } catch (e) { req.log.warn({ err: e.message }, 'Onkyo: control falló'); return fail(reply, e); }
     return onkyo.status();
