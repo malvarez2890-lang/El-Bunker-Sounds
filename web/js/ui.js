@@ -2,6 +2,7 @@
 import { h, icon, fmtTime, clear, add, plural, KIND_LABEL } from './dom.js';
 import { get, post, put, del, coverUrl, errorText } from './api.js';
 import * as player from './player.js';
+import { navBack } from './router.js';
 
 const GRADS = [['#ec4899', '#28103c'], ['#ffa028', '#32140a'], ['#3cbec8', '#081e32'], ['#825aff', '#140a37'], ['#f05a3c', '#320a0f']];
 
@@ -201,7 +202,7 @@ export function section(title, body, link) {
 export const hscroll = (...kids) => h('div', { class: 'hscroll' }, ...kids);
 export function backBar(title) {
   return h('div', { class: 'backbar' },
-    h('button', { class: 'icon-btn', 'aria-label': 'Volver', onclick: () => (history.length > 1 ? history.back() : go('#/')) }, icon('left')),
+    h('button', { class: 'icon-btn', 'aria-label': 'Volver', onclick: navBack }, icon('left')),
     title && h('div', { class: 'h2' }, title));
 }
 export { clear };

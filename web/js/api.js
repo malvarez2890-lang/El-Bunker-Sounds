@@ -4,6 +4,9 @@ export class ApiError extends Error {
 
 const listeners = new Set();
 export const onUnauthorized = (fn) => listeners.add(fn);
+const mutationListeners = new Set();
+/** Avisa cuando algo se modifica (favorito, playlist, reproducción…), para refrescar pantallas guardadas. */
+export const onMutation = (fn) => mutationListeners.add(fn);
 
 export async function api(method, url, body) {
   let res;
@@ -22,6 +25,7 @@ export async function api(method, url, body) {
     if (res.status === 401 && !url.startsWith('/api/auth/') && url !== '/api/me') listeners.forEach((fn) => fn());
     throw new ApiError(res.status, data?.error);
   }
+  if (method !== 'GET') mutationListeners.forEach((fn) => fn());
   return data;
 }
 export const get = (url) => api('GET', url);

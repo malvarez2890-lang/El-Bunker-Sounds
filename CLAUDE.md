@@ -10,6 +10,14 @@ App web (PWA) para escuchar la música casera del dueño y compartirla con ~10 a
 - Probar todo lo posible (Chromium + Playwright, audio de prueba con ffmpeg) y **decir con honestidad qué se probó y qué no** (no hay iPhone ni la música real).
 - No crear repos ni tocar configuración de GitHub: si falta algo, pedírselo. Repo: `malvarez2890-lang/El-Bunker-Sounds` (privado). Commits y push cuando haya cambios.
 
+## REGLA DE ORO (del dueño, vale para esta app y para toda app futura): debe parecer una APP, no una web
+- Pantalla de carga con el logo al abrir (HTML estático en `index.html`, se ve al instante) + imágenes de arranque de iPhone (`scripts/make-splash.py`).
+- Sin zoom (`user-scalable=no`, `touch-action`, `gesturestart`), sin barras de navegador (`display: standalone`, `apple-mobile-web-app-capable`), sin selección de texto ni menú al mantener presionado.
+- Pantalla **fija**: `html/body` en `position: fixed`, nada de scroll del documento ni rebote de la página entera; solo se desplazan las listas (`.page`). Barra superior e inferior quietas. Se ajusta al teclado con `visualViewport`.
+- Navegación **por pilas** con transiciones suaves (`router.js`): pestañas deslizan lateralmente, detalle entra desde la derecha. **Arrastre con el dedo**: entre pestañas (izq./der.) y para volver (desde el borde izquierdo). Gestos ignorados mientras hay una animación o sobre carruseles (`.hscroll`) e inputs.
+- Las pantallas se guardan vivas (no se recargan con "cargando…" al volver); se refrescan en silencio si hubo cambios (`bump()`).
+- Probar siempre con Chromium móvil + toques reales por CDP (`test/e2e.test.js`), y decir qué NO se pudo probar en iPhone.
+
 ## Decisiones tomadas
 - **Publicación (opción B):** contenedor con su **propio nodo Tailscale** (`musica.tailfd4430.ts.net`, puerto 443 propio, Funnel público). La app comparte red con el sidecar (`network_mode: service:tailscale`), no abre puertos en la LAN. `TRUST_PROXY=1` (un solo proxy).
 - **Música:** WAV (Suno) en OneDrive del dueño → el servidor la baja con `rclone` (`scripts/sincronizar-musica.sh`). Estructura real: `Artista/<Artista>/{Albums,EPs,Singles}/<NN. Álbum>/<NN. Título>.wav + PORTADA.png + CONTRAPORTADA.png`. Hay artistas "PIÙ VELOCE" y "El MAS LENTO". Algunas canciones no tienen número (ej. "Mañana.wav"); algunos álbumes no tienen portada.
@@ -25,7 +33,7 @@ App web (PWA) para escuchar la música casera del dueño y compartirla con ~10 a
   - `routes/` auth, api (biblioteca, stream con Range, carátulas, favoritos, playlists, recientes), admin.
   - `safe-path.js` evita salir de la carpeta de música. El stream usa el nombre de archivo guardado en BD, nunca una ruta del usuario.
   - Seguridad: CSP estricta (sin inline), comprobación de `Origin`, rate limit global y estricto en login, nada de listado de archivos, música/carátulas solo con sesión **activa**.
-- `web/` SPA en JS puro (módulos ES, **sin build**). Router por hash. `player.js` (cola, shuffle, repeat, Media Session, recuerda la cola), `playerui.js`, `ui.js` (componentes), `views/`. `sw.js` solo cachea la app (red primero); nunca API/música.
+- `web/` SPA en JS puro (módulos ES, **sin build**). Router por hash con pila de pantallas y gestos (`router.js`). `player.js` (cola, shuffle, repeat, Media Session, recuerda la cola), `playerui.js`, `ui.js` (componentes), `views/`. `sw.js` solo cachea la app (red primero); nunca API/música.
   - Ojo: usar `h()`/`add()`/`fill()` de `dom.js`, **no** `Element.append` con valores posiblemente null (escribe "null").
 - Despliegue: `Dockerfile` (node:22-slim + ffmpeg), `docker-compose.yml` (tailscale + app), `deploy/tailscale-serve.json`, `.env.example`, `actualizar.sh`, `docs/SERVIDOR.md` (guía para el dueño).
 
@@ -38,6 +46,9 @@ App web (PWA) para escuchar la música casera del dueño y compartirla con ~10 a
 ## Estado y honestidad sobre pruebas
 - **Probado aquí:** escáner, conversión real a M4A, rangos HTTP, seguridad de rutas, accesos/aprobación/bloqueo, límites de intentos, flujo Google contra un servidor de Google *simulado*, UI completa en Chromium móvil (audio avanza, Media Session con título/artista/álbum/carátulas, botones siguiente/pausa, favoritos, playlists, admin), `docker compose config`.
 - **NO probado:** iPhone/Safari real (audio con pantalla bloqueada, carátula en pantalla de bloqueo, instalación PWA, login Google dentro de la PWA), Google real, SMTP real de Gmail, imagen Docker (no había daemon), Tailscale/Funnel real, la música real del dueño ni los límites de ancho de banda de Funnel.
+
+## Problemas conocidos (iPhone)
+- Al tocar la tarjeta de la pantalla de bloqueo, iOS abrió OTRA web app del dueño en vez de El Búnker Sound. Se agregó `id` y `start_url` propios (`/?app=el-bunker-sound`) al manifest; hay que **quitar y volver a instalar** la app para que iOS lo tome. Si persiste, investigar (¿otra PWA del mismo dominio `*.ts.net`? ¿instalada desde Safari o desde otra?).
 
 ## Pendiente / ideas para después
 - Probar en iPhone real y ajustar (sesión PWA vs Safari, Media Session, `ended`→siguiente en segundo plano).

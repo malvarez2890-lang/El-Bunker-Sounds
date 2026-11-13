@@ -1,6 +1,6 @@
 import { h, icon, clear } from './dom.js';
-import { get, post, patch, onUnauthorized, errorText } from './api.js';
-import { startRouter, markFresh } from './router.js';
+import { get, post, patch, onUnauthorized, onMutation, errorText } from './api.js';
+import { createRouter, bump, TABS } from './router.js';
 import { openSheet, promptText, toast, errorState, go } from './ui.js';
 import * as player from './player.js';
 import { mountMini } from './playerui.js';
@@ -17,15 +17,15 @@ let router = null;
 let badgeTimer = null;
 
 const ROUTES = [
-  { re: /^\/?$/, tab: 'inicio', view: home },
-  { re: /^\/explorar$/, tab: 'explorar', view: explore },
+  { re: /^\/?$/, tab: 'inicio', root: true, view: home },
+  { re: /^\/explorar$/, tab: 'explorar', root: true, view: explore },
   { re: /^\/lista\/(album|ep|single|artistas)$/, tab: 'explorar', view: lista, loading: 'grid' },
-  { re: /^\/biblioteca$/, tab: 'biblioteca', view: library },
+  { re: /^\/biblioteca$/, tab: 'biblioteca', root: true, view: library },
   { re: /^\/favoritos$/, tab: 'biblioteca', view: favorites },
   { re: /^\/recientes$/, tab: 'biblioteca', view: recents },
   { re: /^\/playlists$/, tab: 'biblioteca', view: playlists },
   { re: /^\/playlist\/(\d+)$/, tab: 'biblioteca', view: playlist },
-  { re: /^\/buscar$/, tab: 'buscar', view: search },
+  { re: /^\/buscar$/, tab: 'buscar', root: true, view: search },
   { re: /^\/album\/(\d+)$/, tab: null, view: album },
   { re: /^\/artista\/(\d+)$/, tab: null, view: artist },
   { re: /^\/admin$/, tab: null, view: admin },
@@ -61,23 +61,19 @@ function renderShell(me) {
   clear(app);
   const badge = h('span', { class: 'badge', hidden: true });
   const avatar = h('button', { class: 'avatar', 'aria-label': 'Tu perfil', onclick: () => openProfile(me, avatar) }, me.name.slice(0, 1), badge);
-  const view = h('main', { id: 'view', tabIndex: -1 });
+  const stage = h('main', { id: 'stage' });
   const tabs = [['inicio', '#/', 'home', 'Inicio'], ['explorar', '#/explorar', 'compass', 'Explorar'], ['biblioteca', '#/biblioteca', 'library', 'Biblioteca'], ['buscar', '#/buscar', 'search', 'Buscar']];
-  const tabEls = Object.fromEntries(tabs.map(([id, href, ico, label]) => [id, h('a', { class: 'tab', href }, icon(ico), label)]));
+  const tabEls = Object.fromEntries(tabs.map(([id, href, ico, label]) => [id, h('a', { class: 'tab', href, onclick: () => { if (router?.atRoot(id)) router.scrollTop(); } }, icon(ico), label)]));
   app.append(
     h('header', { class: 'topbar' }, h('a', { class: 'brand', href: '#/', 'aria-label': 'El Búnker Sound, inicio' }, h('b', null, 'EL BÚNKER'), h('span', null, 'SOUND')), avatar),
-    view,
+    stage,
     h('nav', { class: 'tabbar', 'aria-label': 'Principal' }, ...Object.values(tabEls)));
   mountMini(app);
 
   const ctx = { me, refresh: () => router?.refresh(), updateBadge };
-  let activeTab = 'inicio';
-  router = startRouter({
-    routes: ROUTES, mount: view, ctx,
-    onTab(tab) {
-      if (tab) activeTab = tab;
-      for (const [id, el] of Object.entries(tabEls)) { if (id === activeTab) el.setAttribute('aria-current', 'page'); else el.removeAttribute('aria-current'); }
-    },
+  router = createRouter({
+    routes: ROUTES, stage, ctx,
+    onTab(tab) { for (const [id, el] of Object.entries(tabEls)) { if (id === tab) el.setAttribute('aria-current', 'page'); else el.removeAttribute('aria-current'); } },
   });
 
   async function updateBadge() {
@@ -105,11 +101,39 @@ function openProfile(me, avatar) {
           if (!name) return;
           try { await patch('/api/me', { name }); me.name = name; boot(); } catch (e) { toast(errorText(e)); }
         }),
-        me.isAdmin ? item('shield', pending ? `Administración (${pending} pendiente${pending === 1 ? '' : 's'})` : 'Administración', () => { markFresh(); go('#/admin'); }) : null,
+        me.isAdmin ? item('shield', pending ? `Administración (${pending} pendiente${pending === 1 ? '' : 's'})` : 'Administración', () => go('#/admin')) : null,
         item('logout', 'Cerrar sesión', logout, 'danger')));
   });
 }
 
 onUnauthorized(() => { player.reset(); boot(); });
+onMutation(bump);
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
-boot();
+
+// ---- que se sienta como una app: sin zoom, sin que la pantalla "baile" y ajustada al teclado ----
+document.addEventListener('gesturestart', (e) => e.preventDefault());
+document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+const vv = window.visualViewport;
+if (vv) {
+  const fit = () => {
+    document.documentElement.style.setProperty('--app-h', `${Math.round(vv.height)}px`);
+    document.body.classList.toggle('kbd', vv.height < window.innerHeight * 0.8);
+    if (window.scrollY || vv.offsetTop) window.scrollTo(0, 0);
+  };
+  vv.addEventListener('resize', fit);
+  vv.addEventListener('scroll', fit);
+  fit();
+}
+
+// ---- pantalla de carga: el logo se ve un momento y luego se desvanece ----
+const splash = document.getElementById('splash');
+const t0 = performance.now();
+async function start() {
+  await boot();
+  await Promise.race([router?.ready, new Promise((r) => setTimeout(r, 4000))]);
+  const rest = Math.max(0, 1600 - (performance.now() - t0));
+  await new Promise((r) => setTimeout(r, rest));
+  splash?.classList.add('hide');
+  setTimeout(() => splash?.remove(), 600);
+}
+start();

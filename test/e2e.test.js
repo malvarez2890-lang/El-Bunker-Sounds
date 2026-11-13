@@ -59,8 +59,16 @@ async function newPage(name) {
   });
   return { page, ctx };
 }
+/** Espera a que terminen las animaciones de cambio de pantalla. */
+const noSplash = (page) => page.locator('#splash').waitFor({ state: 'detached', timeout: 8000 }).catch(() => {});
+const settled = async (page) => {
+  await page.waitForTimeout(380); // deja arrancar y terminar la transición de pantalla
+  await page.waitForFunction(() => !document.getAnimations().some((a) => a.playState === 'running' && a.effect?.target?.closest?.('.page')), null, { timeout: 5000 });
+};
+const P = (page) => page.locator('.page:not(.off)');
 const shot = async (page, name) => {
-  await page.waitForTimeout(380); // que terminen las animaciones de entrada
+  await settled(page).catch(() => {});
+  await page.waitForTimeout(250);
   const text = await page.locator('body').innerText();
   assert.ok(!/\bnull\b|\bundefined\b|\[object|NaN/.test(text), `texto raro en pantalla ${name}: ${text.match(/.{0,20}(null|undefined|\[object|NaN).{0,20}/)?.[0]}`);
   await page.screenshot({ path: path.join(SHOTS, `${name}.png`) });
@@ -102,7 +110,7 @@ test('pantalla de bienvenida y acceso', { skip: !pw }, async () => {
 
 test('inicio, explorar, biblioteca y buscar', { skip: !pw }, async () => {
   const { page } = admin;
-  await page.locator('.hero').waitFor();
+  await P(page).locator('.hero').waitFor();
   await page.waitForFunction(() => [...document.images].every((i) => i.complete));
   await shot(page, '04-inicio');
   await page.getByRole('link', { name: 'Explorar' }).click();
@@ -113,12 +121,12 @@ test('inicio, explorar, biblioteca y buscar', { skip: !pw }, async () => {
   await page.getByRole('heading', { name: 'Mi biblioteca' }).waitFor();
   await shot(page, '06-biblioteca');
   await page.getByRole('link', { name: 'Buscar' }).click();
-  await page.getByLabel('Buscar', { exact: true }).fill('MAÑANA');
-  await page.locator('.row', { hasText: 'Mañana' }).waitFor();
-  await page.getByLabel('Buscar', { exact: true }).fill('zzzz');
-  await page.getByText('No encontramos nada').waitFor();
-  await page.getByLabel('Buscar', { exact: true }).fill('piu veloce');
-  await page.locator('.card', { hasText: 'PIÙ VELOCE' }).first().waitFor();
+  await P(page).getByLabel('Buscar', { exact: true }).fill('MAÑANA');
+  await P(page).locator('.row', { hasText: 'Mañana' }).waitFor();
+  await P(page).getByLabel('Buscar', { exact: true }).fill('zzzz');
+  await P(page).getByText('No encontramos nada').waitFor();
+  await P(page).getByLabel('Buscar', { exact: true }).fill('piu veloce');
+  await P(page).locator('.card', { hasText: 'PIÙ VELOCE' }).first().waitFor();
   await page.waitForFunction(() => [...document.images].every((i) => i.complete));
   await shot(page, '07-buscar');
 });
@@ -126,7 +134,8 @@ test('inicio, explorar, biblioteca y buscar', { skip: !pw }, async () => {
 test('álbum: reproducir, mini reproductor, pantalla bloqueada (Media Session)', { skip: !pw }, async () => {
   const { page } = admin;
   await page.goto(`${base}/#/lista/album`);
-  await page.locator('.card', { hasText: 'Musica per te' }).click();
+  await settled(page);
+  await P(page).locator('.card', { hasText: 'Musica per te' }).click();
   await page.getByRole('heading', { name: 'Musica per te' }).waitFor();
   await page.waitForFunction(() => [...document.images].every((i) => i.complete));
   await shot(page, '08-album');
@@ -172,7 +181,7 @@ test('reproductor expandido: progreso, favorito, cola, aleatorio, repetir', { sk
   await page.locator('.sheet .row.current').waitFor();
   await page.waitForTimeout(450);
   await shot(page, '11-cola');
-  await page.locator('.sheet .row').nth(3).click();
+  await page.locator('.sheet .row .main').nth(3).click();
   await page.locator('.sheet-backdrop').click({ position: { x: 10, y: 10 } });
   await page.getByRole('button', { name: 'Cerrar reproductor' }).click();
   await page.locator('.player').waitFor({ state: 'detached' });
@@ -181,7 +190,7 @@ test('reproductor expandido: progreso, favorito, cola, aleatorio, repetir', { sk
 test('canciones: menú, favoritos, playlist', { skip: !pw }, async () => {
   const { page } = admin;
   await page.goto(`${base}/#/lista/album`);
-  await page.locator('.card', { hasText: 'Lasciati Andare' }).click();
+  await P(page).locator('.card', { hasText: 'Lasciati Andare' }).click();
   await page.getByRole('heading', { name: 'Lasciati Andare' }).waitFor();
   await page.getByRole('button', { name: 'Más opciones de Il Matto' }).click();
   await page.waitForFunction(() => document.querySelector('.sheet .menu-head'));
@@ -201,16 +210,134 @@ test('canciones: menú, favoritos, playlist', { skip: !pw }, async () => {
   await shot(page, '13-playlists');
   await page.locator('.pl-row .t', { hasText: 'Para el auto' }).click();
   await page.getByRole('heading', { name: 'Para el auto' }).waitFor();
-  await page.locator('.row', { hasText: 'Nessuna Risposta' }).waitFor();
+  await P(page).locator('.row', { hasText: 'Nessuna Risposta' }).waitFor();
   await shot(page, '14-playlist');
   await page.goto(`${base}/#/favoritos`);
-  await page.locator('.row', { hasText: 'Che Livello!' }).waitFor();
+  await P(page).locator('.row', { hasText: 'Che Livello!' }).waitFor();
   await page.goto(`${base}/#/recientes`);
-  await page.locator('.row').first().waitFor();
+  await P(page).locator('.row').first().waitFor();
   await page.goto(`${base}/#/artista/1`);
-  await page.locator('.detail-head').waitFor();
+  await P(page).locator('.detail-head').waitFor();
   await page.waitForFunction(() => [...document.images].every((i) => i.complete));
   await shot(page, '15-artista');
+});
+
+/** Simula un dedo: delay bajo = empujón rápido; delay alto = arrastre lento. */
+async function touch(page, points, { end = true, delay = 16 } = {}) {
+  const cdp = await page.context().newCDPSession(page);
+  const [first, ...rest] = points;
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: first[0], y: first[1] }] });
+  for (const [x, y] of rest) { await page.waitForTimeout(delay); await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y }] }); }
+  if (end) { await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await page.waitForTimeout(520); } // deja terminar la animación
+  return cdp;
+}
+const line = (x0, y0, x1, y1, n = 10) => Array.from({ length: n + 1 }, (_, i) => [x0 + ((x1 - x0) * i) / n, y0 + ((y1 - y0) * i) / n]);
+
+test('pantalla de carga: aparece al instante con el logo y luego se va', { skip: !pw }, async () => {
+  const f = await newPage('splash');
+  await f.page.goto(base, { waitUntil: 'commit' });
+  await f.page.locator('#splash').waitFor({ state: 'visible', timeout: 3000 });
+  assert.equal(await f.page.locator('#splash img').getAttribute('src'), '/img/logo.webp');
+  await f.page.waitForTimeout(700);
+  await f.page.screenshot({ path: path.join(SHOTS, '00-pantalla-de-carga.png') });
+  await f.page.locator('#splash').waitFor({ state: 'detached', timeout: 6000 });
+  await f.page.getByRole('button', { name: 'Comenzar' }).waitFor();
+  await f.ctx.close();
+});
+
+test('se comporta como app: sin zoom, sin scroll de la página, sin selección', { skip: !pw }, async () => {
+  const { page } = admin;
+  await page.goto(base);
+  await noSplash(page);
+  await settled(page).catch(() => {});
+  const r = await page.evaluate(() => {
+    window.scrollBy(0, 400); document.documentElement.scrollTop = 300;
+    return {
+      viewport: document.querySelector('meta[name=viewport]').content,
+      scrollY: window.scrollY, docScroll: document.scrollingElement.scrollTop,
+      select: getComputedStyle(document.body).userSelect, callout: getComputedStyle(document.body).webkitTouchCallout,
+      overflow: getComputedStyle(document.body).overflow, bodyPos: getComputedStyle(document.body).position,
+      visiblePages: document.querySelectorAll('.page:not(.off)').length,
+      standalone: document.querySelector('meta[name=apple-mobile-web-app-capable]').content,
+      tabbarInFlow: getComputedStyle(document.querySelector('.tabbar')).position,
+    };
+  });
+  assert.match(r.viewport, /user-scalable=no/);
+  assert.match(r.viewport, /maximum-scale=1/);
+  assert.equal(r.scrollY, 0);
+  assert.equal(r.docScroll, 0);
+  assert.equal(r.select, 'none');
+  assert.equal(r.overflow, 'hidden');
+  assert.equal(r.bodyPos, 'fixed');
+  assert.equal(r.visiblePages, 1);
+  assert.equal(r.standalone, 'yes');
+});
+
+test('gestos: arrastrar para cambiar de pestaña y para volver', { skip: !pw }, async () => {
+  const { page } = admin;
+  await noSplash(page);
+  await page.goto(`${base}/#/biblioteca`);
+  await P(page).getByRole('heading', { name: 'Mi biblioteca' }).waitFor();
+  await settled(page);
+  // arrastre corto: se cancela y vuelve a su sitio
+  await touch(page, line(200, 400, 250, 402, 4), { delay: 90 });
+  assert.equal(await page.evaluate(() => location.hash), '#/biblioteca');
+  // a mitad de arrastre se ven las dos pantallas
+  const cdp = await touch(page, line(330, 400, 150, 402, 10), { end: false, delay: 40 });
+  await page.waitForTimeout(100);
+  assert.equal(await page.locator('.page:not(.off)').count(), 2, 'durante el arrastre se ven la pantalla actual y la siguiente');
+  await shot(page, '19-arrastre-a-medias');
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await page.waitForFunction(() => location.hash === '#/buscar');
+  await page.waitForTimeout(450);
+  await settled(page);
+  assert.equal(await page.locator('.page:not(.off)').count(), 1);
+  assert.equal(await page.locator('.tab[aria-current=page]').innerText(), 'Buscar');
+  // hacia el otro lado
+  await touch(page, line(60, 400, 340, 402, 10));
+  await page.waitForFunction(() => location.hash === '#/biblioteca');
+  await settled(page);
+  assert.equal(await page.locator('.tab[aria-current=page]').innerText(), 'Biblioteca');
+  // en la última pestaña no hay más a la derecha (rebota y se queda)
+  await page.goto(`${base}/#/buscar`); await settled(page);
+  await touch(page, line(340, 400, 60, 402, 8)); await settled(page);
+  assert.equal(await page.evaluate(() => location.hash), '#/buscar');
+
+  // entrar a un álbum y volver arrastrando desde la izquierda
+  await page.goto(`${base}/#/lista/album`); await settled(page);
+  await P(page).locator('.card', { hasText: 'Lasciati Andare' }).click(); await settled(page);
+  await P(page).getByRole('heading', { name: 'Lasciati Andare' }).waitFor();
+  const before = await page.evaluate(() => document.querySelectorAll('.page').length);
+  await touch(page, line(20, 300, 330, 304, 10));
+  await page.waitForFunction(() => location.hash === '#/lista/album');
+  await settled(page);
+  await P(page).getByRole('heading', { name: 'Álbumes' }).waitFor();
+  assert.ok(await page.evaluate(() => document.querySelectorAll('.page').length) < before, 'la pantalla de abajo se descarta al volver');
+  // el botón atrás hace lo mismo (con animación)
+  await P(page).locator('.card', { hasText: 'Neon, Fumo' }).click(); await settled(page);
+  await page.getByRole('button', { name: 'Volver' }).click();
+  await P(page).getByRole('heading', { name: 'Álbumes' }).waitFor();
+  assert.equal(await page.locator('.page:not(.off)').count() >= 1, true);
+  // tocar la pestaña activa con una pantalla encima vuelve a la raíz
+  await P(page).locator('.card').first().click(); await settled(page);
+  await page.getByRole('link', { name: 'Explorar' }).click(); await settled(page);
+  await P(page).getByRole('heading', { name: 'Explorar' }).waitFor();
+});
+
+test('el scroll de una lista no mueve el resto de la app', { skip: !pw }, async () => {
+  const { page } = admin;
+  await page.goto(`${base}/#/lista/album`); await settled(page);
+  await P(page).locator('.card', { hasText: 'Musica per te' }).click(); await settled(page);
+  await touch(page, line(200, 650, 200, 250, 10));
+  await page.waitForTimeout(500);
+  const r = await page.evaluate(() => ({
+    pageScroll: document.querySelector('.page:not(.off)').scrollTop, win: window.scrollY,
+    tabbarY: Math.round(document.querySelector('.tabbar').getBoundingClientRect().bottom), vh: innerHeight, topbarY: Math.round(document.querySelector('.topbar').getBoundingClientRect().top),
+  }));
+  assert.ok(r.pageScroll > 100, 'la lista sí se desplaza');
+  assert.equal(r.win, 0);
+  assert.equal(r.tabbarY, r.vh, 'la barra de abajo queda fija');
+  assert.equal(r.topbarY, 0, 'la barra de arriba queda fija');
 });
 
 test('amigo nuevo: queda pendiente y el admin lo aprueba desde la app', { skip: !pw }, async () => {
@@ -225,10 +352,10 @@ test('amigo nuevo: queda pendiente y el admin lo aprueba desde la app', { skip: 
   const { page } = admin;
   await page.goto(`${base}/#/admin`);
   await page.getByRole('heading', { name: 'Administración' }).waitFor();
-  await page.locator('.user', { hasText: 'amigo@test.cl' }).waitFor();
+  await P(page).locator('.user', { hasText: 'amigo@test.cl' }).waitFor();
   await page.waitForFunction(() => document.querySelector('.stat'));
   await shot(page, '17-admin');
-  await page.locator('.user', { hasText: 'amigo@test.cl' }).getByRole('button', { name: 'Aprobar' }).click();
+  await P(page).locator('.user', { hasText: 'amigo@test.cl' }).getByRole('button', { name: 'Aprobar' }).click();
   await page.getByText('ya puede entrar').waitFor();
 
   await friend.page.getByRole('button', { name: 'Revisar de nuevo' }).click();
@@ -240,7 +367,7 @@ test('amigo nuevo: queda pendiente y el admin lo aprueba desde la app', { skip: 
   assert.equal(adminDenied, 403);
 
   // bloquear: se le cierra la sesión
-  await page.locator('.user', { hasText: 'amigo@test.cl' }).getByRole('button', { name: 'Bloquear' }).click();
+  await P(page).locator('.user', { hasText: 'amigo@test.cl' }).getByRole('button', { name: 'Bloquear' }).click();
   await page.getByRole('button', { name: 'Bloquear', exact: true }).last().click();
   await page.getByText('fue bloqueado').waitFor();
   await friend.page.goto(base);
