@@ -83,8 +83,12 @@ def describe(url):
     if dev is None:
         return None
     g = lambda tag: (dev.findtext(f'd:{tag}', default='', namespaces=ns) or '').strip()
-    services = [s.findtext('d:serviceType', default='', namespaces=ns) for s in root.iter('{urn:schemas-upnp-org:device-1-0}service')]
-    return {'name': g('friendlyName'), 'maker': g('manufacturer'), 'model': g('modelName'), 'type': g('deviceType'), 'services': services}
+    services, controls = [], {}
+    for sv in root.iter('{urn:schemas-upnp-org:device-1-0}service'):
+        t = sv.findtext('d:serviceType', default='', namespaces=ns)
+        services.append(t)
+        controls[t] = sv.findtext('d:controlURL', default='', namespaces=ns)
+    return {'name': g('friendlyName'), 'maker': g('manufacturer'), 'model': g('modelName'), 'type': g('deviceType'), 'services': services, 'controls': controls}
 
 def _frame(cmd):
     data = ('!1' + cmd + '\r').encode()
@@ -170,6 +174,37 @@ def ssdp_directo(ip, timeout=3.0):
         s.close()
     return found
 
+def puertos_abiertos(ip, puertos, timeout=0.3):
+    def probe(p):
+        try:
+            with socket.create_connection((ip, p), timeout=timeout):
+                return p
+        except OSError:
+            return None
+    with ThreadPoolExecutor(400) as ex:
+        return sorted(p for p in ex.map(probe, puertos) if p)
+
+DESC_PATHS = ['/description.xml', '/', '/upnp/desc.xml', '/rootDesc.xml', '/MediaRenderer/desc.xml', '/dmr/rootdesc.xml', '/Basic/rootDesc.xml', '/dd.xml', '/DeviceDescription.xml']
+
+def upnp_por_puertos(ip):
+    """Sin usar mensajes "a todos": prueba los puertos del equipo y busca la descripción UPnP/DLNA directamente."""
+    puertos = [p for p in list(range(1, 1025)) + list(range(1025, 10000)) + list(range(49152, 65536)) if p != 60128]
+    print('  Probando puertos del equipo (unos 15 segundos)…')
+    abiertos = puertos_abiertos(ip, puertos)
+    print('  Puertos abiertos:', ', '.join(map(str, abiertos)) or 'ninguno')
+    hallados = {}
+    for p in abiertos:
+        for path in DESC_PATHS:
+            url = f'http://{ip}:{p}{path}'
+            try:
+                body = urllib.request.urlopen(url, timeout=2).read(200000)
+            except Exception:
+                continue
+            if b'urn:schemas-upnp-org:device-1-0' in body:
+                hallados[url] = ip
+                break
+    return hallados
+
 def main():
     args = [a for a in sys.argv[1:]]
     net_arg = None
@@ -228,7 +263,10 @@ def main():
         print(f'\nPreguntando por DLNA/UPnP directamente a {ip} …')
         directo = ssdp_directo(ip)
         if not directo:
-            print('  El equipo no contestó por DLNA/UPnP. Puede que no acepte recibir canciones por ese camino (o que haya que activarlo en su menú de red).')
+            print('  No contestó a la pregunta directa. Pruebo por puertos…')
+            directo = upnp_por_puertos(ip)
+        if not directo:
+            print('  El equipo no muestra ningún servicio DLNA/UPnP. Ponlo en la entrada NET (red) con su control remoto y vuelve a correr esto.')
         for loc, addr in directo.items():
             d = describe(loc)
             if not d:
@@ -238,6 +276,10 @@ def main():
             print(f"  • {d['name'] or '(sin nombre)'}  {d['maker']} {d['model']}  tipo: {d['type'].split(':')[-2] if ':' in d['type'] else d['type']}")
             print('    ' + ('✅ PUEDE RECIBIR MÚSICA (AVTransport): se le puede mandar una canción' if puede else '- no ofrece recibir música; sí puede mostrar su biblioteca' if any('ContentDirectory' in x for x in d['services']) else '- sin funciones de música'))
             print('    servicios:', ', '.join(sorted({x.split(':')[-2] for x in d['services'] if ':' in x})))
+            print('    dirección de la descripción:', loc)
+            for t, c in d.get('controls', {}).items():
+                if 'AVTransport' in t or 'RenderingControl' in t:
+                    print(f"    control {t.split(':')[-2]}: {c}")
 
 if __name__ == '__main__':
     main()
