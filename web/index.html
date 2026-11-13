@@ -32,9 +32,12 @@
   <script type="module" src="/js/main.js"></script>
 </head>
 <body>
-  <div id="app"></div>
-  <!-- Pantalla de carga: se ve al instante, antes de que cargue el resto -->
-  <div id="splash" aria-hidden="true"><img src="/img/logo.webp" alt="" width="900" height="675"></div>
+  <!-- #rot envuelve TODO (app, hojas, avisos, pantalla de carga): si el teléfono se gira, se contra-gira para que la app siga vertical -->
+  <div id="rot">
+    <div id="app"></div>
+    <!-- Pantalla de carga: se ve al instante, antes de que cargue el resto -->
+    <div id="splash" aria-hidden="true"><img src="/img/logo.webp" alt="" width="900" height="675"></div>
+  </div>
   <noscript><p style="padding:24px;color:#F3F0E9;font-family:sans-serif">El Búnker Sound necesita JavaScript para funcionar.</p></noscript>
 </body>
 </html>

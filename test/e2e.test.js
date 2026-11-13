@@ -56,6 +56,9 @@ async function newPage(name) {
     window.__audios = [];
     const orig = HTMLMediaElement.prototype.play;
     HTMLMediaElement.prototype.play = function () { if (!window.__audios.includes(this)) window.__audios.push(this); return orig.call(this); };
+    // Anota qué botones de la pantalla de bloqueo registra la app (iOS muestra anterior/siguiente solo si NO hay botones de ±10 s).
+    window.__msh = {};
+    if (window.MediaSession) { const setH = MediaSession.prototype.setActionHandler; MediaSession.prototype.setActionHandler = function (n, f) { window.__msh[n] = f; return setH.call(this, n, f); }; }
     // Permite simular el teléfono bloqueado: el aviso "terminó la canción" no llega (iOS congela la app justo ahí).
     const addL = EventTarget.prototype.addEventListener;
     EventTarget.prototype.addEventListener = function (type, cb, opts) {
@@ -410,6 +413,96 @@ test('diagnóstico del audio: está dentro de Administración y muestra el estad
   assert.match(txt, /memoria \(blob\)/);
   assert.match(txt, /Últimos eventos/);
   assert.match(txt, /descarga lista/);
+});
+
+test('pantalla de bloqueo: botones anterior/siguiente como Spotify (no ±10 s) y funcionan', { skip: !pw }, async () => {
+  const { page } = admin;
+  await noSplash(page);
+  await page.goto(`${base}/#/lista/album`); await settled(page);
+  await P(page).locator('.card', { hasText: 'Musica per te' }).click(); await settled(page);
+  await P(page).getByRole('button', { name: 'Reproducir', exact: true }).first().click();
+  await page.waitForFunction(() => navigator.mediaSession.metadata?.title === 'Che Livello!');
+  const h = await page.evaluate(() => Object.fromEntries(Object.entries(window.__msh).map(([k, v]) => [k, typeof v])));
+  assert.equal(h.nexttrack, 'function');
+  assert.equal(h.previoustrack, 'function');
+  assert.equal(h.seekbackward, 'object', 'sin botón de retroceder 10 s (null)');
+  assert.equal(h.seekforward, 'object', 'sin botón de avanzar 10 s (null)');
+  await page.evaluate(() => window.__msh.nexttrack());
+  await page.waitForFunction(() => navigator.mediaSession.metadata?.title === 'Neon');
+  await page.evaluate(() => window.__msh.previoustrack());
+  await page.waitForFunction(() => navigator.mediaSession.metadata?.title === 'Che Livello!' || window.__a().currentTime < 3);
+});
+
+test('gestos: mini reproductor, tarjeta del reproductor y hojas se manejan deslizando', { skip: !pw }, async () => {
+  const { page } = admin;
+  await noSplash(page);
+  const title = () => page.evaluate(() => navigator.mediaSession.metadata?.title);
+  await page.waitForFunction(() => navigator.mediaSession.metadata?.title);
+  // mini: deslizar a la izquierda = siguiente; a la derecha = anterior
+  const m = await page.locator('.mini').boundingBox();
+  const y = m.y + m.height / 2;
+  const t0 = await title();
+  await touch(page, line(m.x + m.width - 60, y, m.x + 40, y, 8), { delay: 20 });
+  await page.waitForFunction((a) => navigator.mediaSession.metadata?.title !== a, t0);
+  const t1 = await title();
+  await touch(page, line(m.x + 40, y, m.x + m.width - 60, y, 8), { delay: 20 });
+  await page.waitForFunction((a) => navigator.mediaSession.metadata?.title !== a, t1);
+  // mini: deslizar hacia arriba abre el reproductor
+  await touch(page, line(m.x + 200, y, m.x + 200, y - 120, 8), { delay: 20 });
+  await page.locator('.player').waitFor();
+  await settled(page).catch(() => {});
+  // reproductor: deslizar la carátula a un lado cambia de canción
+  const t2 = await title();
+  const art = await page.locator('.player .art .cover').boundingBox();
+  await touch(page, line(art.x + art.width - 20, art.y + art.height / 2, art.x + 20, art.y + art.height / 2, 8), { delay: 20 });
+  await page.waitForFunction((a) => navigator.mediaSession.metadata?.title !== a, t2);
+  await page.waitForTimeout(350);
+  // reproductor: deslizar hacia abajo la tarjeta, la cierra (sin tocar el botón de la flecha)
+  const mid = await touch(page, line(200, 160, 200, 520, 8), { end: false, delay: 20 });
+  await page.waitForTimeout(80);
+  const moved = await page.evaluate(() => new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.player')).transform).m42);
+  assert.ok(moved > 100, `la tarjeta sigue al dedo (bajó ${Math.round(moved)} px)`);
+  await shot(page, '20-arrastrando-tarjeta');
+  await mid.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await page.locator('.player').waitFor({ state: 'detached', timeout: 3000 });
+  // un arrastre corto la deja donde estaba
+  await page.locator('.mini .main').click();
+  await page.locator('.player').waitFor();
+  await touch(page, line(200, 160, 200, 200, 4), { delay: 60 });
+  await page.waitForTimeout(300);
+  assert.equal(await page.locator('.player').count(), 1);
+  await page.getByRole('button', { name: 'Cerrar reproductor' }).click();
+  await page.locator('.player').waitFor({ state: 'detached' });
+
+  // hojas inferiores: se cierran deslizando hacia abajo
+  await page.goto(`${base}/#/lista/album`); await settled(page);
+  await P(page).locator('.card', { hasText: 'Lasciati Andare' }).click(); await settled(page);
+  await page.getByRole('button', { name: 'Más opciones de Il Matto' }).click();
+  await page.locator('.sheet').waitFor();
+  await page.waitForTimeout(450);
+  const sh = await page.locator('.sheet').boundingBox();
+  await touch(page, line(sh.x + sh.width / 2, sh.y + 14, sh.x + sh.width / 2, sh.y + 260, 8), { delay: 20 });
+  await page.locator('.sheet').waitFor({ state: 'detached', timeout: 3000 });
+});
+
+test('siempre vertical: con el teléfono de lado la app se contra-gira y sigue en vertical', { skip: !pw }, async () => {
+  const ctx = await browser.newContext({ viewport: { width: 844, height: 390 }, screen: { width: 844, height: 390 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'es-CL', serviceWorkers: 'block' });
+  const page = await ctx.newPage();
+  await page.goto(base);
+  await page.locator('#splash').waitFor({ state: 'detached', timeout: 8000 });
+  await page.getByRole('button', { name: 'Comenzar' }).waitFor();
+  const r = await page.evaluate(() => {
+    const rot = document.getElementById('rot'), app = document.getElementById('app');
+    const m = new DOMMatrixReadOnly(getComputedStyle(rot).transform);
+    const b = document.querySelector('.gate button').getBoundingClientRect();
+    return { land: document.documentElement.classList.contains('land'), w: app.offsetWidth, h: app.offsetHeight, a: m.a, b: m.b, btn: [b.x, b.y, b.right, b.bottom], vw: innerWidth, vh: innerHeight };
+  });
+  assert.equal(r.land, true);
+  assert.ok(r.w <= 400 && r.h >= 800, `la app mide ${r.w}x${r.h}: sigue siendo vertical (alto > ancho)`);
+  assert.ok(Math.abs(r.a) < 0.01 && Math.abs(Math.abs(r.b) - 1) < 0.01, 'rotada 90°');
+  assert.ok(r.btn[0] >= -1 && r.btn[2] <= r.vw + 1 && r.btn[1] >= -1 && r.btn[3] <= r.vh + 1, 'el contenido cabe en pantalla');
+  await page.screenshot({ path: path.join(SHOTS, '21-horizontal-contragirado.png') });
+  await ctx.close();
 });
 
 test('amigo nuevo: queda pendiente y el admin lo aprueba desde la app', { skip: !pw }, async () => {

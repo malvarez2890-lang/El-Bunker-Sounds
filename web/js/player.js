@@ -402,6 +402,7 @@ decks.forEach(wire);
 // ---------- pantalla bloqueada / controles del celular ----------
 function updateMediaSession() {
   if (!('mediaSession' in navigator)) return;
+  registerMediaHandlers();
   const t = current();
   if (!t) { navigator.mediaSession.metadata = null; return; }
   const artwork = t.hasCover
@@ -415,17 +416,22 @@ function updatePositionState() {
   if (!Number.isFinite(d) || d <= 0) return;
   try { navigator.mediaSession.setPositionState({ duration: d, playbackRate: audio.playbackRate || 1, position: Math.min(audio.currentTime, d) }); } catch { /* algunos navegadores no lo aceptan */ }
 }
-if ('mediaSession' in navigator) {
+/** Botones de la pantalla de bloqueo: solo anterior/siguiente (como Spotify). Se vuelven a registrar en cada canción por si iOS los olvida. */
+function registerMediaHandlers() {
+  if (!('mediaSession' in navigator)) return;
   const ms = navigator.mediaSession;
   const set = (name, fn) => { try { ms.setActionHandler(name, fn); } catch { /* acción no disponible */ } };
   set('play', () => { if (!isPlayingUI()) toggle(); });
   set('pause', () => { if (isPlayingUI()) toggle(); });
   set('previoustrack', () => prev());
   set('nexttrack', () => next());
-  // OJO: si se registran seekbackward/seekforward, iOS muestra "±10 s" en vez de canción anterior/siguiente. Para música no se registran.
+  // Si se registraran seekbackward/seekforward, iOS mostraría "±10 s" en vez de anterior/siguiente. Se dejan explícitamente sin acción.
+  set('seekbackward', null);
+  set('seekforward', null);
   set('seekto', (d) => { if (d.fastSeek && audio.fastSeek) audio.fastSeek(d.seekTime); else seek(d.seekTime); });
   set('stop', () => { st.wantPlay = false; audio.pause(); seek(0); });
 }
+registerMediaHandlers();
 
 // ---------- recordar lo último que sonaba ----------
 const KEY = 'ebs_player_v1';

@@ -1,7 +1,8 @@
 // Mini reproductor (siempre visible) y reproductor expandido.
 import { h, icon, fmtTime, clear } from './dom.js';
 import * as player from './player.js';
-import { cover, toggleFav, go, openSheet, toast } from './ui.js';
+import { cover, toggleFav, go, openSheet, toast, overlayRoot } from './ui.js';
+import { pointerGesture, glide } from './gestures.js';
 
 let miniEl = null;
 
@@ -37,6 +38,24 @@ export function mountMini(parent) {
     miniEl.style.setProperty('--p', d ? Math.min(1, player.position() / d).toFixed(4) : '0');
   };
   miniEl.addEventListener('click', () => openPlayer());
+  pointerGesture(miniEl, {
+    lock: (axis, dx, dy) => axis === 'x' || (axis === 'y' && dy < 0),
+    move: (dx, dy, g) => { if (g.locked === 'x') { miniEl.style.transform = `translate3d(${dx * 0.7}px,0,0)`; miniEl.style.opacity = String(1 - Math.min(0.5, Math.abs(dx) / 500)); } },
+    async end({ dx, dy, vx, axis, cancelled }) {
+      if (axis === 'y') { if (!cancelled && dy < -30) openPlayer(); return; }
+      const go = !cancelled && (Math.abs(dx) > 70 || Math.abs(vx) > 0.5);
+      if (go) {
+        const dir = dx < 0 ? -1 : 1;
+        await glide(miniEl, { transform: `translate3d(${dir * 140}px,0,0)`, opacity: '0' }, 130);
+        miniEl.style.transition = 'none';
+        miniEl.style.transform = `translate3d(${-dir * 90}px,0,0)`;
+        if (dx < 0) player.next(); else player.prev();
+        await glide(miniEl, { transform: 'translate3d(0,0,0)', opacity: '1' }, 170);
+        miniEl.style.transition = '';
+      } else await glide(miniEl, { transform: 'translate3d(0,0,0)', opacity: '1' }, 160);
+      miniEl.style.transform = ''; miniEl.style.opacity = '';
+    },
+  });
   player.on('change', render);
   player.on('time', updateBar);
   render();
@@ -47,17 +66,22 @@ export function openPlayer() {
   const root = h('div', { class: 'player', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Reproductor' });
   const inner = h('div', { class: 'inner' });
   root.append(inner);
-  document.body.append(root);
+  overlayRoot().append(root);
   document.body.style.setProperty('overflow', 'hidden');
+  let enterFrom = 0; // de qué lado entra la carátula nueva tras deslizar
 
   let dragging = false;
   let shownId = null;
   const els = {};
 
-  const close = () => {
+  let closed = false;
+  const close = async ({ fromDrag = false } = {}) => {
+    if (closed) return;
+    closed = true;
     unsub(); unsubTime();
     document.removeEventListener('keydown', onKey);
     document.body.style.removeProperty('overflow');
+    if (fromDrag) { await glide(root, { transform: 'translate3d(0,100%,0)' }, 200); root.remove(); return; }
     root.classList.add('closing');
     setTimeout(() => root.remove(), 220);
   };
@@ -94,6 +118,11 @@ export function openPlayer() {
       h('div', { class: 'bottom' },
         h('button', { class: 'chip', onclick: openQueue }, icon('queue'), 'En cola'),
         h('a', { class: 'chip', href: `#/album/${t.albumId}`, style: { 'margin-left': '10px' }, onclick: close }, icon('disc'), 'Ver álbum')));
+    if (enterFrom) { // la carátula nueva entra deslizando desde el lado contrario
+      const art = inner.querySelector('.art .cover');
+      art.animate([{ transform: `translate3d(${enterFrom * 60}%,0,0)`, opacity: 0 }, { transform: 'translate3d(0,0,0)', opacity: 1 }], { duration: 260, easing: 'cubic-bezier(.22,.8,.24,1)' });
+      enterFrom = 0;
+    }
   }
 
   function paint() {
@@ -125,6 +154,28 @@ export function openPlayer() {
     els.range.value = Math.round(p * 1000);
     els.range.style.setProperty('--p', p);
   }
+  // Deslizar hacia abajo cierra la tarjeta; deslizar la carátula a los lados cambia de canción.
+  pointerGesture(root, {
+    filter: (e) => !!e.target.closest('.top, .art, .info') && !e.target.closest('.range'),
+    lock: (axis, dx, dy, g) => (axis === 'y' ? dy > 0 : !!g.target.closest('.art')),
+    move: (dx, dy, g) => {
+      if (g.locked === 'y') root.style.transform = `translate3d(0,${Math.max(0, dy)}px,0)`;
+      else { const art = inner.querySelector('.art .cover'); if (art) { art.style.transform = `translate3d(${dx}px,0,0)`; art.style.opacity = String(1 - Math.min(0.6, Math.abs(dx) / 400)); } }
+    },
+    async end({ dx, dy, vx, vy, axis, cancelled }) {
+      if (axis === 'y') {
+        if (!cancelled && (dy > 140 || vy > 0.6)) close({ fromDrag: true });
+        else glide(root, { transform: 'translate3d(0,0,0)' }, 200).then(() => { root.style.transform = ''; });
+        return;
+      }
+      const art = inner.querySelector('.art .cover');
+      if (!cancelled && (Math.abs(dx) > 90 || Math.abs(vx) > 0.5)) {
+        enterFrom = dx < 0 ? 1 : -1; // si se desliza a la izquierda, la nueva entra por la derecha
+        if (art) await glide(art, { transform: `translate3d(${dx < 0 ? -120 : 120}px,0,0)`, opacity: '0' }, 120);
+        if (dx < 0) player.next(); else player.prev();
+      } else if (art) glide(art, { transform: 'translate3d(0,0,0)', opacity: '1' }, 180).then(() => { art.style.transform = ''; art.style.opacity = ''; });
+    },
+  });
   const unsub = player.on('change', paint);
   const unsubTime = player.on('time', tick);
   paint();

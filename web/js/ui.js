@@ -3,6 +3,10 @@ import { h, icon, fmtTime, clear, add, plural, KIND_LABEL } from './dom.js';
 import { get, post, put, del, coverUrl, errorText } from './api.js';
 import * as player from './player.js';
 import { navBack } from './router.js';
+import { pointerGesture, glide } from './gestures.js';
+
+/** Todo lo que se abre encima (hojas, ventanas, avisos, reproductor) va dentro de #rot, para que rote junto con la app. */
+export const overlayRoot = () => document.getElementById('rot') || document.body;
 
 const GRADS = [['#ec4899', '#28103c'], ['#ffa028', '#32140a'], ['#3cbec8', '#081e32'], ['#825aff', '#140a37'], ['#f05a3c', '#320a0f']];
 
@@ -27,7 +31,7 @@ export const go = (hash) => { location.hash = hash; };
 export function toast(text) {
   document.querySelectorAll('.toast').forEach((t) => t.remove());
   const el = h('div', { class: 'toast', role: 'status' }, text);
-  document.body.append(el);
+  overlayRoot().append(el);
   setTimeout(() => el.remove(), 2700);
 }
 
@@ -65,7 +69,19 @@ function overlay(build, { modal = false } = {}) {
   document.addEventListener('keydown', onKey);
   backdrop.addEventListener('click', () => api.close());
   build(box, api);
-  document.body.append(backdrop, box);
+  overlayRoot().append(backdrop, box);
+  if (!modal) {
+    // Deslizar hacia abajo desde la barrita o el encabezado cierra la hoja.
+    pointerGesture(box, {
+      filter: (e) => !!e.target.closest('.grab, h3, .menu-head'),
+      lock: (axis, dx, dy) => axis === 'y' && dy > 0,
+      move: (dx, dy) => { box.style.transform = `translate(-50%, ${Math.max(0, dy)}px)`; },
+      end({ dy, vy, cancelled }) {
+        if (!cancelled && (dy > 90 || vy > 0.6)) { glide(box, { transform: 'translate(-50%, 100%)' }, 180).then(() => api.close()); backdrop.style.transition = 'opacity .18s'; backdrop.style.opacity = '0'; }
+        else glide(box, { transform: 'translate(-50%, 0)' }, 180).then(() => { box.style.transform = ''; });
+      },
+    });
+  }
   return api;
 }
 export const openSheet = (build) => overlay(build);

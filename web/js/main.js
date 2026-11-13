@@ -115,9 +115,27 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').cat
 // ---- que se sienta como una app: sin zoom, sin que la pantalla "baile" y ajustada al teclado ----
 document.addEventListener('gesturestart', (e) => e.preventDefault());
 document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+// ---- siempre vertical: si el teléfono se gira, la app se contra-gira (iOS no deja bloquear la rotación a una web app) ----
+const root = document.documentElement;
+function orient() {
+  const phone = Math.min(screen.width, screen.height) <= 500;
+  const land = phone && window.innerWidth > window.innerHeight;
+  const ang = screen.orientation?.angle ?? window.orientation ?? 90;
+  const ccw = ang === 90 || ang === -270; // el teléfono giró con la parte de arriba hacia la izquierda
+  root.classList.toggle('land', land);
+  root.classList.toggle('ccw', land && ccw);
+  root.classList.toggle('cw', land && !ccw);
+}
+window.addEventListener('resize', orient);
+window.addEventListener('orientationchange', orient);
+screen.orientation?.addEventListener?.('change', orient);
+orient();
+
 const vv = window.visualViewport;
 if (vv) {
   const fit = () => {
+    orient();
+    if (root.classList.contains('land')) { root.style.setProperty('--app-h', '100%'); return; }
     document.documentElement.style.setProperty('--app-h', `${Math.round(vv.height)}px`);
     document.body.classList.toggle('kbd', vv.height < window.innerHeight * 0.8);
     if (window.scrollY || vv.offsetTop) window.scrollTo(0, 0);
