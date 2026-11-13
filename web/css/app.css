@@ -369,14 +369,7 @@ body.has-mini .toast { --mini-h: 68px; }
 @keyframes loadingPulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
 .diag { font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-all; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); padding: 12px; color: var(--muted); -webkit-user-select: text; user-select: text; }
 
-/* ---------- Siempre vertical (iOS no deja bloquear la rotación a una web app, así que se contra-gira) ---------- */
-#rot { position: fixed; inset: 0; }
-html.land #rot { inset: auto; width: 100vh; height: 100vw; left: calc((100vw - 100vh) / 2); top: calc((100vh - 100vw) / 2); }
-html.land.ccw #rot { transform: rotate(-90deg); --safe-t: env(safe-area-inset-left); --safe-b: env(safe-area-inset-right); }
-html.land.cw #rot { transform: rotate(90deg); --safe-t: env(safe-area-inset-right); --safe-b: env(safe-area-inset-left); }
-html.land #app { height: 100%; }
-#rot { transition: opacity .16s ease; }
-html.rotating #rot { opacity: 0; transition: none; }
+#rot { position: fixed; inset: 0; } /* envuelve todo (app, hojas, avisos, pantalla de carga) */
 
 /* ---------- Gestos: zonas donde el dedo arrastra (el navegador no debe interferir) ---------- */
 .mini { touch-action: none; }
@@ -384,3 +377,70 @@ html.rotating #rot { opacity: 0; transition: none; }
 .sheet .grab, .sheet h3, .sheet .menu-head { touch-action: none; }
 .sheet .grab { position: relative; }
 .sheet .grab::before { content: ""; position: absolute; inset: -16px -70px; }
+
+/* =====================================================================================================
+   TELÉFONO DE LADO (horizontal): la app se reordena y funciona igual.
+   - La barra de abajo pasa a ser una columna a la izquierda.
+   - Las listas muestran más columnas, el álbum pone la carátula a un lado y el reproductor se parte en dos.
+   ===================================================================================================== */
+@media (orientation: landscape) and (max-height: 520px) {
+  :root { --col: 100%; --rail: calc(86px + env(safe-area-inset-left, 0px)); --mini-h: 54px; --safe-t: 0px; --safe-b: 0px; }
+  #app {
+    display: grid; grid-template-columns: var(--rail) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: "rail top" "rail stage"; padding-right: env(safe-area-inset-right, 0px); height: var(--app-h, 100%);
+  }
+  .topbar { grid-area: top; padding: 8px 16px 6px; }
+  .brand { flex-direction: row; align-items: baseline; gap: 8px; }
+  .brand span { margin-top: 0; }
+  .avatar { width: 32px; height: 32px; font-size: 13px; }
+  #stage { grid-area: stage; }
+  .tabbar {
+    grid-area: rail; display: flex; flex-direction: column; justify-content: center; gap: 4px; width: auto; height: auto;
+    padding: 8px 0 8px env(safe-area-inset-left, 0px); border-top: 0; border-right: 1px solid var(--line);
+  }
+  .tab { flex: none; min-height: 52px; padding: 6px 0; }
+  .tab .icon { font-size: 22px; }
+  .page { padding: 2px 16px 20px; }
+  .mini { left: calc(var(--rail) + 10px); right: calc(10px + env(safe-area-inset-right, 0px)); bottom: 10px; max-width: 560px; }
+  body.has-mini .page { padding-bottom: calc(var(--mini-h) + 24px); }
+  .toast { bottom: calc(var(--mini-h) + 24px); }
+
+  .h1 { font-size: 22px; margin: 2px 0 10px; }
+  .grid { grid-template-columns: repeat(4, 1fr); }
+  .tiles { grid-template-columns: repeat(4, 1fr); }
+  .hero { min-height: 128px; }
+  .section { margin-top: 18px; }
+
+  /* Álbum / artista / lista: carátula a la izquierda, datos y botones a la derecha */
+  .detail-head { display: grid; grid-template-columns: 150px minmax(0, 1fr); column-gap: 18px; align-items: center; text-align: left; justify-items: start; }
+  .detail-head .cover, .artist-head .cover { grid-row: 1 / span 4; width: 150px; margin: 0; }
+  .detail-head > :not(.cover) { grid-column: 2; }
+  .detail-head h1 { font-size: 20px; }
+  .actions { justify-content: flex-start; margin: 8px 0 0; }
+
+  /* Reproductor expandido en dos columnas: carátula | datos y controles */
+  .player .inner {
+    display: grid; grid-template-columns: minmax(0, 40%) minmax(0, 1fr); grid-template-rows: auto auto auto auto 1fr; column-gap: 26px;
+    padding: 8px max(24px, env(safe-area-inset-right, 0px)) 8px max(24px, env(safe-area-inset-left, 0px)); align-content: center;
+  }
+  .player .top { grid-column: 2; grid-row: 1; }
+  .player .art { grid-column: 1; grid-row: 1 / span 5; padding: 8px 0; }
+  .player .art .cover { width: min(100%, calc(100vh - 28px)); }
+  .player .info { grid-column: 2; grid-row: 2; }
+  .player .seek { grid-column: 2; grid-row: 3; margin-top: 6px; }
+  .player .controls { grid-column: 2; grid-row: 4; margin: 2px 0; }
+  .player .bottom { grid-column: 2; grid-row: 5; align-self: start; }
+  .controls .play { width: 62px; height: 62px; font-size: 30px; }
+  .controls .icon-btn { width: 46px; height: 46px; }
+  .player .info h2 { font-size: 19px; }
+
+  /* Hojas y ventanas: más compactas */
+  .sheet { max-height: 92vh; width: min(100%, 520px); }
+
+  /* Entrada: se puede desplazar si no cabe */
+  .gate { overflow-y: auto; justify-content: flex-start; padding: 16px max(24px, env(safe-area-inset-left, 0px)) 16px max(24px, env(safe-area-inset-right, 0px)); }
+  .gate > * { width: min(100%, 440px); margin-left: auto; margin-right: auto; }
+  .gate .logo { width: min(40vh, 220px); margin-bottom: 4px; }
+  .gate .tagline { margin-bottom: 12px; }
+  .gate .pending-ico { width: 56px; height: 56px; font-size: 26px; }
+}

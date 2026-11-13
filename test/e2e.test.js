@@ -46,8 +46,8 @@ const codeFor = (email) => {
   }
 };
 
-async function newPage(name) {
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'es-CL', serviceWorkers: 'block' });
+async function newPage(name, opts = {}) {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'es-CL', serviceWorkers: 'block', ...opts });
   const page = await ctx.newPage();
   page.on('console', (m) => { if (m.type() === 'error' && !/status of (401|403)/.test(m.text())) errors.push(`[${name}] ${m.text()}`); });
   page.on('pageerror', (e) => errors.push(`[${name}] ${e.message}`));
@@ -485,41 +485,95 @@ test('gestos: mini reproductor, tarjeta del reproductor y hojas se manejan desli
   await page.locator('.sheet').waitFor({ state: 'detached', timeout: 3000 });
 });
 
-test('al girar el teléfono la app se esconde durante el giro (sin destello al revés) y reaparece vertical', { skip: !pw }, async () => {
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, screen: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'es-CL', serviceWorkers: 'block' });
-  const page = await ctx.newPage();
+test('teléfono de lado (horizontal): la app se reordena (columna de navegación, más columnas, reproductor en dos) y funciona igual', { skip: !pw }, async () => {
+  const { page, ctx } = await newPage('horizontal', { viewport: { width: 844, height: 390 }, screen: { width: 844, height: 390 } });
+  const fits = async (loc, what) => {
+    const b = await loc.boundingBox();
+    assert.ok(b && b.x >= -1 && b.y >= -1 && b.x + b.width <= 845 && b.y + b.height <= 391, `${what} cabe en pantalla (${JSON.stringify(b)})`);
+    return b;
+  };
+  // entrada
   await page.goto(base);
   await page.locator('#splash').waitFor({ state: 'detached', timeout: 8000 });
-  assert.equal(await page.evaluate(() => document.documentElement.classList.contains('rotating')), false);
-  await page.setViewportSize({ width: 844, height: 390 });
-  assert.equal(await page.evaluate(() => document.documentElement.classList.contains('rotating')), true, 'se esconde al empezar el giro');
-  assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('rot')).opacity), '0');
-  await page.waitForFunction(() => !document.documentElement.classList.contains('rotating'), null, { timeout: 3000 });
-  await page.waitForTimeout(300);
-  assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('rot')).opacity), '1', 'reaparece');
-  assert.equal(await page.evaluate(() => document.documentElement.classList.contains('land')), true);
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.waitForFunction(() => !document.documentElement.classList.contains('rotating') && !document.documentElement.classList.contains('land'), null, { timeout: 3000 });
+  await fits(page.getByRole('button', { name: 'Comenzar' }), 'botón Comenzar');
+  await page.screenshot({ path: path.join(SHOTS, '21-horizontal-entrada.png') });
+  await login(page, 'admin@test.cl');
+  await P(page).getByRole('heading', { name: 'Tu música. Tu refugio.' }).waitFor();
+  await settled(page).catch(() => {});
+
+  // la barra de abajo pasa a ser una columna a la izquierda
+  const rail = await page.locator('.tabbar').boundingBox();
+  assert.ok(rail.x <= 1 && rail.width < 140 && rail.height > 250, `columna de navegación a la izquierda (${JSON.stringify(rail)})`);
+  const stage = await page.locator('#stage').boundingBox();
+  assert.ok(stage.x >= rail.width - 1 && stage.width > 600, `el contenido usa el resto del ancho (${Math.round(stage.width)} px)`);
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'sin desplazamiento lateral');
+  await page.waitForFunction(() => [...document.images].every((i) => i.complete));
+  await page.screenshot({ path: path.join(SHOTS, '22-horizontal-inicio.png') });
+
+  // se navega igual
+  await page.getByRole('link', { name: 'Explorar' }).click(); await settled(page);
+  await P(page).getByRole('heading', { name: 'Explorar' }).waitFor();
+  await page.goto(`${base}/#/lista/album`); await settled(page);
+  const cols = await page.evaluate(() => getComputedStyle(document.querySelector('.page:not(.off) .grid')).gridTemplateColumns.split(' ').length);
+  assert.equal(cols, 4, 'la grilla de álbumes usa 4 columnas');
+
+  // álbum: carátula a la izquierda, datos a la derecha
+  await P(page).locator('.card', { hasText: 'Musica per te' }).click(); await settled(page);
+  const cover = await P(page).locator('.detail-head .cover').boundingBox();
+  const title = await P(page).locator('.detail-head h1').boundingBox();
+  assert.ok(cover.x + cover.width <= title.x + 1, 'la carátula queda a la izquierda del título');
+  await page.waitForFunction(() => [...document.images].every((i) => i.complete));
+  await page.screenshot({ path: path.join(SHOTS, '23-horizontal-album.png') });
+
+  // reproducir: el mini reproductor va al lado de la columna, no encima
+  await P(page).getByRole('button', { name: 'Reproducir', exact: true }).first().click();
+  await page.locator('.mini').waitFor();
+  await page.waitForFunction(() => navigator.mediaSession.metadata?.title === 'Che Livello!');
+  const mini = await fits(page.locator('.mini'), 'mini reproductor');
+  assert.ok(mini.x >= rail.width, 'el mini reproductor no tapa la columna de navegación');
+
+  // reproductor expandido en dos columnas
+  await page.locator('.mini .main').click();
+  await page.locator('.player').waitFor();
+  await page.waitForTimeout(450);
+  const art = await fits(page.locator('.player .art .cover'), 'carátula del reproductor');
+  const info = await page.locator('.player .info').boundingBox();
+  assert.ok(art.x + art.width <= info.x + 1, 'carátula a la izquierda, datos a la derecha');
+  await fits(page.locator('.player .controls .play'), 'botón de play');
+  await fits(page.locator('.player .range'), 'barra de reproducción');
+  await fits(page.getByRole('button', { name: 'Cerrar reproductor' }), 'botón para cerrar');
+  await page.waitForFunction(() => [...document.images].every((i) => i.complete));
+  await page.screenshot({ path: path.join(SHOTS, '24-horizontal-reproductor.png') });
+  // sigue funcionando: la barra salta y el cierre por gesto
+  await page.locator('.player .range').evaluate((el) => { el.value = 600; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); });
+  await page.waitForFunction(() => window.__a().currentTime > 3);
+  await page.getByRole('button', { name: 'Cerrar reproductor' }).click();
+  await page.locator('.player').waitFor({ state: 'detached' });
+
+  // hojas inferiores caben
+  await page.getByRole('button', { name: 'Más opciones de Neon' }).first().click();
+  await page.locator('.sheet').waitFor();
+  await page.waitForTimeout(450);
+  await fits(page.locator('.sheet'), 'menú de la canción');
+  await page.screenshot({ path: path.join(SHOTS, '25-horizontal-menu.png') });
   await ctx.close();
 });
 
-test('siempre vertical: con el teléfono de lado la app se contra-gira y sigue en vertical', { skip: !pw }, async () => {
-  const ctx = await browser.newContext({ viewport: { width: 844, height: 390 }, screen: { width: 844, height: 390 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'es-CL', serviceWorkers: 'block' });
+test('vertical y horizontal no se mezclan: al volver a vertical todo vuelve a su lugar', { skip: !pw }, async () => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, screen: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'es-CL', serviceWorkers: 'block' });
   const page = await ctx.newPage();
-  await page.goto(base);
+  await login(page, 'admin@test.cl');
+  await P(page).getByRole('heading', { name: 'Tu música. Tu refugio.' }).waitFor();
   await page.locator('#splash').waitFor({ state: 'detached', timeout: 8000 });
-  await page.getByRole('button', { name: 'Comenzar' }).waitFor();
-  const r = await page.evaluate(() => {
-    const rot = document.getElementById('rot'), app = document.getElementById('app');
-    const m = new DOMMatrixReadOnly(getComputedStyle(rot).transform);
-    const b = document.querySelector('.gate button').getBoundingClientRect();
-    return { land: document.documentElement.classList.contains('land'), w: app.offsetWidth, h: app.offsetHeight, a: m.a, b: m.b, btn: [b.x, b.y, b.right, b.bottom], vw: innerWidth, vh: innerHeight };
-  });
-  assert.equal(r.land, true);
-  assert.ok(r.w <= 400 && r.h >= 800, `la app mide ${r.w}x${r.h}: sigue siendo vertical (alto > ancho)`);
-  assert.ok(Math.abs(r.a) < 0.01 && Math.abs(Math.abs(r.b) - 1) < 0.01, 'rotada 90°');
-  assert.ok(r.btn[0] >= -1 && r.btn[2] <= r.vw + 1 && r.btn[1] >= -1 && r.btn[3] <= r.vh + 1, 'el contenido cabe en pantalla');
-  await page.screenshot({ path: path.join(SHOTS, '21-horizontal-contragirado.png') });
+  const where = () => page.evaluate(() => { const r = document.querySelector('.tabbar').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height, vh: innerHeight, vw: innerWidth }; });
+  let t = await where();
+  assert.ok(t.y > t.vh - 120 && t.w >= t.vw - 2, 'vertical: barra de abajo');
+  await page.setViewportSize({ width: 844, height: 390 }); await page.waitForTimeout(400);
+  t = await where();
+  assert.ok(t.x <= 1 && t.w < 140, 'horizontal: columna a la izquierda');
+  await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(400);
+  t = await where();
+  assert.ok(t.y > t.vh - 120 && t.w >= t.vw - 2, 'de vuelta a vertical: barra de abajo');
   await ctx.close();
 });
 

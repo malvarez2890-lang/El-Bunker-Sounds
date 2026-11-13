@@ -7,7 +7,6 @@
   "start_url": "/?app=el-bunker-sound",
   "scope": "/",
   "display": "standalone",
-  "orientation": "portrait",
   "background_color": "#090A0C",
   "theme_color": "#090A0C",
   "icons": [
