@@ -671,7 +671,15 @@ test('Onkyo: el administrador lo ve, envía la cola, controla y el amigo no tien
   assert.equal(fakeOnkyo.dev.power, true);
   assert.equal(fakeOnkyo.dev.input, '2B');
   assert.equal(fakeOnkyo.av.fetched.length >= 1 && fakeOnkyo.av.fetched[0].status, 206);
-  assert.equal(await page.evaluate(() => !window.__a() || window.__a().paused), true, 'el teléfono se calla');
+  const phoneQuiet = () => page.evaluate(() => !window.__audios.some((a) => a.src.startsWith('blob:') && !a.paused));
+  assert.equal(await phoneQuiet(), true, 'el teléfono no reproduce la canción');
+  // Pantalla bloqueada: el teléfono reproduce silencio en bucle y la tarjeta muestra lo que suena en el Onkyo
+  assert.equal(await page.evaluate(() => window.__audios.some((a) => /silence-long\.wav$/.test(a.src) && !a.paused && a.loop)), true, 'silencio en bucle activo');
+  const ms = () => page.evaluate(() => ({ state: navigator.mediaSession.playbackState, title: navigator.mediaSession.metadata?.title, artist: navigator.mediaSession.metadata?.artist }));
+  const nowTitle = await page.locator('.onk-now .t').innerText();
+  const m1 = await ms();
+  assert.equal(m1.state, 'playing');
+  assert.equal(m1.title, nowTitle);
   await page.waitForTimeout(450);
   await shot(page, '61-onkyo-sonando');
   // volumen (con tope), pausa y siguiente
@@ -698,7 +706,19 @@ test('Onkyo: el administrador lo ve, envía la cola, controla y el amigo no tien
   await until(() => fakeOnkyo.av.state === 'PAUSED_PLAYBACK');
   await card.getByRole('button', { name: 'Reproducir' }).click();
   await until(() => fakeOnkyo.av.state === 'PLAYING');
-  assert.equal(await page.evaluate(() => !window.__a() || window.__a().paused), true, 'el teléfono sigue callado');
+  assert.equal(await phoneQuiet(), true, 'el teléfono sigue callado');
+  // los botones de la pantalla de bloqueo (Media Session) mandan al Onkyo y la tarjeta sigue la canción del Onkyo
+  const nBefore = avCount();
+  await page.evaluate(() => window.__msh.nexttrack());
+  await until(() => avCount() === nBefore + 1);
+  await page.waitForFunction((t) => navigator.mediaSession.metadata?.title && navigator.mediaSession.metadata.title !== t, m1.title);
+  await page.evaluate(() => window.__msh.pause());
+  await until(() => fakeOnkyo.av.state === 'PAUSED_PLAYBACK');
+  await page.waitForFunction(() => navigator.mediaSession.playbackState === 'paused');
+  assert.equal(await page.evaluate(() => window.__audios.some((a) => /silence-long\.wav$/.test(a.src) && !a.paused)), true, 'el silencio sigue sonando aunque el Onkyo esté en pausa');
+  await page.evaluate(() => window.__msh.play());
+  await until(() => fakeOnkyo.av.state === 'PLAYING');
+  await page.waitForFunction(() => navigator.mediaSession.playbackState === 'playing');
   // la barra de la tarjeta salta de minuto en el Onkyo (y no se devuelve)
   await page.waitForFunction(() => document.querySelector('.player .times span:last-child')?.textContent === '0:08');
   await page.locator('.range').evaluate((el) => { el.value = 750; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); });

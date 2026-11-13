@@ -35,11 +35,38 @@ let restorePos = 0;      // posición guardada de la última vez (se usa al apre
 // Modo "control remoto": la música suena en otro aparato (el Onkyo) y los botones de la app lo manejan a él.
 // El teléfono queda en silencio; la cola de aquí es la misma que se envió, así que el índice coincide.
 let remote = null; // { playing(), position(), duration(), toggle(), next(), prev(), jump(i), leave() }
-export const setRemote = (r) => { remote = r; if (r) { st.playing = false; st.wantPlay = false; } emit('change'); emit('time'); };
+export function setRemote(r) {
+  remote = r;
+  if (r) {
+    st.playing = false; st.wantPlay = false; loadToken++; // se cancela cualquier descarga en curso
+    spare.pause(); spareId = null;
+    // El teléfono "reproduce" silencio en bucle: así iOS mantiene viva la app en segundo plano y la tarjeta de la pantalla bloqueada
+    // (título, carátula, anterior/siguiente, pausa), que si no desaparece cuando el teléfono no suena.
+    audio.pause(); loadedId = null; audio.loop = true; audio.src = SILENT_LONG;
+    audio.play().catch(() => {});
+  } else {
+    audio.pause(); audio.loop = false; loadedId = null;
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = current() ? 'paused' : 'none';
+  }
+  remoteMedia();
+  emit('change'); emit('time');
+}
 export const isRemote = () => !!remote;
 /** El aparato remoto cambió de canción: se muestra la misma aquí, sin cargar ni sonar nada en el teléfono. */
-export function syncIndex(i) { if (remote && st.queue[i] && st.index !== i) { st.index = i; emit('change'); } }
-export const refresh = () => { emit('change'); emit('time'); };
+export function syncIndex(i) { if (remote && st.queue[i] && st.index !== i) { st.index = i; remoteMedia(); emit('change'); } }
+export const refresh = () => { remoteMedia(); emit('change'); emit('time'); };
+/** Pantalla bloqueada con el Onkyo: título, estado y posición vienen del Onkyo, no del audio del teléfono. */
+function remoteMedia() {
+  if (!remote || !('mediaSession' in navigator)) return;
+  updateMediaSession();
+  const ms = navigator.mediaSession;
+  const pl = remote.playing();
+  ms.playbackState = pl ? 'playing' : 'paused';
+  const d = duration();
+  if (ms.setPositionState && Number.isFinite(d) && d > 0) {
+    try { ms.setPositionState({ duration: d, playbackRate: pl ? 1 : 0.0001, position: Math.min(Math.max(0, position()), d) }); } catch { /* no soportado */ }
+  }
+}
 export const tickTime = () => emit('time');
 
 /** Lo que muestran los botones: suena, o va a sonar apenas termine de descargar. */
@@ -110,7 +137,8 @@ function prefetch(index) {
 
 // ---------- desbloqueo del audio (iPhone solo deja sonar si el primer play viene de un toque) ----------
 const SILENT = '/silence.wav'; // medio segundo de silencio, propio de la app (el CSP no deja usar data: en audio)
-const isSilentEl = (el) => el.src.endsWith('/silence.wav');
+const SILENT_LONG = '/silence-long.wav'; // 10 s de silencio: se repite mientras la música suena en el Onkyo para que iOS siga mostrando la tarjeta de la pantalla bloqueada
+const isSilentEl = (el) => /\/silence(-long)?\.wav$/.test(el.src);
 const isSilent = () => isSilentEl(audio);
 let unlocked = false;
 function unlock() {
@@ -416,6 +444,8 @@ function wire(el) {
   });
 }
 decks.forEach(wire);
+// Mientras la música suena en el Onkyo, el silencio del teléfono nunca debe quedar pausado (si no, iOS retira la tarjeta de la pantalla bloqueada).
+for (const el of decks) el.addEventListener('pause', () => { if (remote && el === audio && isSilentEl(el)) el.play().catch(() => {}); });
 
 // ---------- pantalla bloqueada / controles del celular ----------
 function updateMediaSession() {
