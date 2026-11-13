@@ -110,6 +110,9 @@ function openProfile(me, avatar) {
 
 onUnauthorized(() => { player.reset(); boot(); });
 onMutation(bump);
+// Android (Chrome): el navegador avisa cuando la app se puede instalar; se guarda el aviso para mostrar nuestro propio botón "Instalar".
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); window.__installEvent = e; window.dispatchEvent(new Event('ebs:installable')); });
+window.addEventListener('appinstalled', () => { window.__installEvent = null; window.dispatchEvent(new Event('ebs:installed')); });
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
 // ---- que se sienta como una app: sin zoom, sin que la pantalla "baile" y ajustada al teclado ----

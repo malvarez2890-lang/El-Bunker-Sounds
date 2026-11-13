@@ -1,19 +1,40 @@
-import { h, icon, plural } from '../dom.js';
+import { h, icon, plural, fill } from '../dom.js';
 import { get } from '../api.js';
 import { cover, albumCard, section, hscroll, emptyState, go } from '../ui.js';
 import { playAlbum, playArtist, playEverything } from '../actions.js';
 
 const isStandalone = () => navigator.standalone || matchMedia('(display-mode: standalone)').matches;
 const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
+const isAndroid = () => /android/i.test(navigator.userAgent);
 
+/** Aviso para instalar la app: iPhone (pasos con Compartir) y Android (botón "Instalar" si el navegador lo permite, o pasos del menú). */
 function installBanner() {
   let dismissed = false;
   try { dismissed = localStorage.getItem('ebs_install_hint') === '1'; } catch { /* nada */ }
-  if (isStandalone() || !isIOS() || dismissed) return null;
-  const el = h('div', { class: 'install-banner' }, icon('share'),
-    h('div', { style: { flex: '1' } }, h('b', null, 'Instala la app en tu iPhone'),
-      h('p', null, 'Toca el botón Compartir de Safari y elige “Agregar a pantalla de inicio”. Así suena también con la pantalla bloqueada.')),
-    h('button', { class: 'icon-btn', 'aria-label': 'Ocultar aviso', onclick: () => { try { localStorage.setItem('ebs_install_hint', '1'); } catch { /* nada */ } el.remove(); } }, icon('close')));
+  const ios = isIOS(), android = isAndroid();
+  if (isStandalone() || dismissed || (!ios && !android)) return null;
+  const el = h('div', { class: 'install-banner' });
+  const close = () => { try { localStorage.setItem('ebs_install_hint', '1'); } catch { /* nada */ } el.remove(); };
+  const draw = () => {
+    const ev = window.__installEvent; // Chrome en Android avisa cuando se puede instalar con un botón
+    fill(el, icon(ios ? 'share' : 'plus'),
+      h('div', { style: { flex: '1' } },
+        h('b', null, ios ? 'Instala la app en tu iPhone' : 'Instala la app en tu celular'),
+        h('p', null, ios
+          ? 'Toca el botón Compartir de Safari y elige “Agregar a pantalla de inicio”. Así suena también con la pantalla bloqueada.'
+          : ev ? 'Queda como una app en tu pantalla de inicio y suena también con la pantalla bloqueada.'
+            : 'Toca el menú ⋮ del navegador y elige “Instalar app” o “Agregar a la pantalla de inicio”.'),
+        ev ? h('button', { class: 'btn btn-primary btn-sm', style: { 'margin-top': '10px' }, onclick: async () => {
+          ev.prompt();
+          const choice = await ev.userChoice.catch(() => null);
+          window.__installEvent = null;
+          if (choice?.outcome === 'accepted') el.remove(); else draw();
+        } }, 'Instalar') : null),
+      h('button', { class: 'icon-btn', 'aria-label': 'Ocultar aviso', onclick: close }, icon('close')));
+  };
+  draw();
+  window.addEventListener('ebs:installable', () => { if (el.isConnected) draw(); });
+  window.addEventListener('ebs:installed', () => el.remove());
   return el;
 }
 

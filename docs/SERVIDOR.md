@@ -128,6 +128,8 @@ Cuando termine, abre la dirección de `BASE_URL` en tu celular, escribe tu corre
 
 Mándales la dirección. Ellos escriben su correo (o entran con Google), y tú los **apruebas en Administración** (también te llega un correo cuando alguien pide entrar). Mientras no los apruebes, no ven ni escuchan nada. Puedes bloquear o eliminar a cualquiera cuando quieras.
 
+**En Android:** abrir la dirección en Chrome. La app muestra un aviso con el botón **Instalar** (o, si el navegador no lo ofrece, te dice que uses el menú ⋮ → *Instalar app*). Queda en la pantalla de inicio como una app más y, en Android, sí se mantiene vertical sola.
+
 **En iPhone:** abrir la dirección en Safari → botón **Compartir** → **Agregar a pantalla de inicio**. Luego abrir la app desde el ícono y entrar ahí (en iPhone, la app instalada no comparte la sesión con Safari).
 
 ## 9. Actualizar y respaldar

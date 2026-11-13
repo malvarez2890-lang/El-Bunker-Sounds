@@ -505,6 +505,42 @@ test('siempre vertical: con el teléfono de lado la app se contra-gira y sigue e
   await ctx.close();
 });
 
+test('aviso para instalar: iPhone con pasos, Android con botón "Instalar" (o pasos del menú)', { skip: !pw }, async () => {
+  const UAS = {
+    android: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36',
+    iphone: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+  };
+  for (const [name, ua] of Object.entries(UAS)) {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'es-CL', serviceWorkers: 'block', userAgent: ua });
+    const page = await ctx.newPage();
+    await login(page, 'admin@test.cl');
+    await page.locator('#splash').waitFor({ state: 'detached', timeout: 8000 });
+    const banner = P(page).locator('.install-banner');
+    await banner.waitFor();
+    if (name === 'iphone') {
+      assert.match(await banner.innerText(), /Compartir.*Agregar a pantalla de inicio/s);
+    } else {
+      assert.match(await banner.innerText(), /menú ⋮.*Instalar app/s, 'sin aviso del navegador: se explican los pasos');
+      assert.equal(await banner.getByRole('button', { name: 'Instalar' }).count(), 0);
+      // Chrome avisa que se puede instalar: aparece el botón y al tocarlo se abre la ventana de instalación
+      await page.evaluate(() => {
+        const ev = new Event('beforeinstallprompt', { cancelable: true });
+        window.__prompted = 0;
+        ev.prompt = () => { window.__prompted++; return Promise.resolve(); };
+        ev.userChoice = Promise.resolve({ outcome: 'dismissed' });
+        window.dispatchEvent(ev);
+      });
+      await banner.getByRole('button', { name: 'Instalar', exact: true }).click();
+      await page.waitForFunction(() => window.__prompted === 1);
+      await page.screenshot({ path: path.join(SHOTS, '22-aviso-instalar-android.png') });
+    }
+    // se puede ocultar y no vuelve
+    await banner.getByRole('button', { name: 'Ocultar aviso' }).click();
+    await banner.waitFor({ state: 'detached' });
+    await ctx.close();
+  }
+});
+
 test('amigo nuevo: queda pendiente y el admin lo aprueba desde la app', { skip: !pw }, async () => {
   friend = await newPage('amigo');
   await login(friend.page, 'amigo@test.cl');
