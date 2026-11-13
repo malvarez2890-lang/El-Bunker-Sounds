@@ -32,13 +32,23 @@ let loadToken = 0;
 let loadedId = null;     // canción que realmente está cargada en el reproductor
 let restorePos = 0;      // posición guardada de la última vez (se usa al apretar play)
 
+// Modo "control remoto": la música suena en otro aparato (el Onkyo) y los botones de la app lo manejan a él.
+// El teléfono queda en silencio; la cola de aquí es la misma que se envió, así que el índice coincide.
+let remote = null; // { playing(), position(), duration(), toggle(), next(), prev(), jump(i), leave() }
+export const setRemote = (r) => { remote = r; if (r) { st.playing = false; st.wantPlay = false; } emit('change'); emit('time'); };
+export const isRemote = () => !!remote;
+/** El aparato remoto cambió de canción: se muestra la misma aquí, sin cargar ni sonar nada en el teléfono. */
+export function syncIndex(i) { if (remote && st.queue[i] && st.index !== i) { st.index = i; emit('change'); } }
+export const refresh = () => { emit('change'); emit('time'); };
+export const tickTime = () => emit('time');
+
 /** Lo que muestran los botones: suena, o va a sonar apenas termine de descargar. */
-export const isPlayingUI = (s = st) => s.playing || (s.loading && s.wantPlay);
+export const isPlayingUI = (s = st) => (remote ? remote.playing() : s.playing || (s.loading && s.wantPlay));
 export const state = () => st;
 export const current = () => st.queue[st.index] || null;
 const isLoaded = () => !!current() && loadedId === current().id;
-export const position = () => (isLoaded() ? audio.currentTime || 0 : restorePos || pendingSeek || 0);
-export const duration = () => (isLoaded() && Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : current()?.duration || 0);
+export const position = () => (remote ? remote.position() : isLoaded() ? audio.currentTime || 0 : restorePos || pendingSeek || 0);
+export const duration = () => (remote ? remote.duration() || current()?.duration || 0 : isLoaded() && Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : current()?.duration || 0);
 
 // ---------- registro para diagnóstico (pantalla "Diagnóstico del audio") ----------
 const logs = [];
@@ -225,6 +235,7 @@ function load(index, { autoplay = true, startAt = 0 } = {}) {
 
 /** Reproduce una lista desde una posición. shuffle:true = botón "Aleatorio"; false = en orden; sin indicar = mantiene el modo. */
 export function playTracks(tracks, startIndex = 0, { shuffle } = {}) {
+  if (remote) remote.leave(); // elegir música nueva en el teléfono = dejar de mandar al Onkyo
   unlock();
   const ready = tracks.filter((t) => t.ready !== false);
   if (!ready.length) return;
@@ -251,6 +262,7 @@ function shuffled(list) {
 
 export function toggle() {
   if (!current()) return;
+  if (remote) return remote.toggle();
   unlock();
   if (isPlayingUI()) {
     st.wantPlay = false;
@@ -265,6 +277,7 @@ export function toggle() {
 
 export function next({ auto = false } = {}) {
   if (!st.queue.length) return;
+  if (remote) return remote.next();
   if (!auto) unlock();
   if (auto && st.repeat === 'one') { audio.currentTime = 0; startPlayback(); return; }
   let i = st.index + 1;
@@ -279,13 +292,14 @@ export function next({ auto = false } = {}) {
 
 export function prev() {
   if (!st.queue.length) return;
+  if (remote) return remote.prev();
   unlock();
   if (position() > 3 || st.index === 0) { seek(0); return; }
   load(st.index - 1);
 }
 
 export function seek(sec) {
-  if (!Number.isFinite(sec)) return;
+  if (remote || !Number.isFinite(sec)) return; // el Onkyo no permite saltar de minuto
   const d = duration();
   const target = Math.max(0, d ? Math.min(sec, d) : sec);
   if (!isLoaded()) { pendingSeek = target; restorePos = target; emit('time'); return; } // todavía descargando: se aplica al cargar
@@ -295,7 +309,7 @@ export function seek(sec) {
   emit('time');
 }
 
-export function jumpTo(i) { if (st.queue[i]) { unlock(); load(i); } }
+export function jumpTo(i) { if (remote) { if (st.queue[i]) remote.jump(i); return; } if (st.queue[i]) { unlock(); load(i); } }
 
 export function toggleShuffle() {
   const cur = current();
@@ -320,6 +334,7 @@ export function cycleRepeat() {
 }
 
 export function playNext(track) {
+  if (remote) return; // la cola del Onkyo ya está enviada: tocarla aquí la desalinearía
   if (track.ready === false) return;
   if (!st.queue.length) { playTracks([track], 0); return; }
   st.queue.splice(st.index + 1, 0, track);
@@ -328,6 +343,7 @@ export function playNext(track) {
   changed();
 }
 export function addToQueue(track) {
+  if (remote) return; // la cola del Onkyo ya está enviada: tocarla aquí la desalinearía
   if (track.ready === false) return;
   if (!st.queue.length) { playTracks([track], 0); return; }
   st.queue.push(track);
@@ -336,6 +352,7 @@ export function addToQueue(track) {
   changed();
 }
 export function removeFromQueue(i) {
+  if (remote) return; // la cola del Onkyo ya está enviada: tocarla aquí la desalinearía
   if (i === st.index || !st.queue[i]) return;
   const [t] = st.queue.splice(i, 1);
   st.original = st.original.filter((x) => x.id !== t.id);

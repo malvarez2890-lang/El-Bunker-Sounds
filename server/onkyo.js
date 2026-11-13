@@ -45,7 +45,7 @@ export function iscpFrames(buf) {
 }
 
 /** Manda un comando y espera una respuesta que empiece con `expect` (ej. "!1PWR"). Una conexión nueva por comando. */
-function iscpSend(cfg, cmd, expect, timeout = 2500) {
+function iscpSendRaw(cfg, cmd, expect, timeout = 2500) {
   return new Promise((resolve, reject) => {
     let buf = Buffer.alloc(0);
     let done = false;
@@ -71,6 +71,26 @@ function iscpSend(cfg, cmd, expect, timeout = 2500) {
     sock.on('error', (e) => finish(e));
     sock.on('close', () => finish(expect ? new Error('cerrado') : null, null));
   });
+}
+
+// El Onkyo atiende mal varias conexiones a la vez (por ejemplo, estado + volumen): se hacen de a una.
+let iscpQueue = Promise.resolve();
+function iscpSend(cfg, cmd, expect, timeout) {
+  const run = () => iscpSendRaw(cfg, cmd, expect, timeout);
+  const r = iscpQueue.then(run, run);
+  iscpQueue = r.catch(() => {}).then(() => sleep(80)); // una pausita entre conexiones: el equipo tarda en soltar la anterior
+  return r;
+}
+/** Comando de acción (encender, entrada, volumen): espera el eco del equipo y reintenta si cortó la conexión. */
+async function iscpDo(cfg, cmd) {
+  let last;
+  for (let i = 0; i < 4; i++) {
+    try { return await iscpSend(cfg, cmd, `!1${cmd.slice(0, 3)}`, 1500); } catch (e) {
+      if (e.message === 'sin_respuesta') return null; // lo recibió pero no contestó: se da por enviado
+      last = e; await sleep(150);
+    }
+  }
+  throw last;
 }
 
 // ---------- UPnP ----------
@@ -204,21 +224,35 @@ export function createOnkyo({ config, db, lib, log }) {
 
   // ---- eISCP: estado, encendido, entrada, volumen ----
   const ask = async (cmd, prefix) => (await iscpSend(cfg, cmd, `!1${prefix}`)).slice(2 + prefix.length);
+  let devCache = null; // { at, val }: el estado se recuerda un instante para no molestar al equipo
+  const devNow = () => devCache && Date.now() - devCache.at < 1500 ? devCache.val : null;
   async function device() {
-    try {
-      const pwr = await ask('PWRQSTN', 'PWR');
-      if (pwr !== '01') return { online: true, power: false };
-      const [sli, mvl] = [await ask('SLIQSTN', 'SLI').catch(() => null), await ask('MVLQSTN', 'MVL').catch(() => null)];
-      return { online: true, power: true, input: sli, volume: mvl ? parseInt(mvl, 16) : null };
-    } catch { return { online: false, power: false }; }
+    const hit = devNow();
+    if (hit) return hit;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const pwr = await ask('PWRQSTN', 'PWR');
+        let val = { online: true, power: false };
+        if (pwr === '01') {
+          const sli = await ask('SLIQSTN', 'SLI').catch(() => null);
+          const mvl = await ask('MVLQSTN', 'MVL').catch(() => null);
+          val = { online: true, power: true, input: sli, volume: mvl ? parseInt(mvl, 16) : null };
+        }
+        devCache = { at: Date.now(), val };
+        return val;
+      } catch { await sleep(250); } // un tropiezo suelto no significa que esté apagado
+    }
+    return { online: false, power: false };
   }
   async function powerOn() {
     const d = await device();
     if (!d.online) throw new Error('onkyo_sin_conexion');
     if (d.power) return d;
-    await iscpSend(cfg, 'PWR01');
+    devCache = null;
+    await iscpDo(cfg, 'PWR01');
     for (let i = 0; i < 20; i++) { // el equipo tarda unos segundos en despertar
       await sleep(cfg.bootWaitMs);
+      devCache = null;
       const n = await device();
       if (n.power) return n;
     }
@@ -226,7 +260,8 @@ export function createOnkyo({ config, db, lib, log }) {
   }
   async function setVolume(level) {
     const v = Math.max(0, Math.min(cfg.maxVolume, Math.round(Number(level) || 0)));
-    await iscpSend(cfg, `MVL${v.toString(16).toUpperCase().padStart(2, '0')}`);
+    await iscpDo(cfg, `MVL${v.toString(16).toUpperCase().padStart(2, '0')}`);
+    if (devCache?.val.power) devCache = { at: Date.now(), val: { ...devCache.val, volume: v } };
     return v;
   }
 
@@ -298,7 +333,7 @@ export function createOnkyo({ config, db, lib, log }) {
     const start = Math.max(0, tracks.findIndex((t) => t.id === startId));
     S.busy = (async () => {
       const d = await powerOn();
-      if (d.input !== '2B') { await iscpSend(cfg, 'SLI2B'); await sleep(cfg.inputWaitMs); }
+      if (d.input !== '2B') { await iscpDo(cfg, 'SLI2B'); devCache = null; await sleep(cfg.inputWaitMs); }
       S.queue = tracks;
       await loadAndPlay(start);
     })().catch((e) => { S.state = 'stopped'; S.err = e.message; throw e; }).finally(() => { S.busy = null; });
@@ -326,7 +361,8 @@ export function createOnkyo({ config, db, lib, log }) {
   out.setVolume = setVolume;
   out.power = async (on) => {
     if (on) return powerOn();
-    await iscpSend(cfg, 'PWR00');
+    await iscpDo(cfg, 'PWR00');
+    devCache = null;
     S.state = 'idle'; S.queue = []; S.index = -1; stopPolling();
     return { power: false };
   };

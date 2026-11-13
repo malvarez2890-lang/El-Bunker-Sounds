@@ -34,8 +34,7 @@ export default async function onkyoRoutes(app, { auth, onkyo }) {
     if (!need(reply)) return;
     const level = req.body?.level;
     if (!Number.isFinite(level)) return reply.code(400).send({ error: 'datos_invalidos' });
-    try { await onkyo.setVolume(level); } catch (e) { return fail(reply, e); }
-    return onkyo.status();
+    try { return { volume: await onkyo.setVolume(level) }; } catch (e) { return fail(reply, e); } // respuesta mínima: así subir/bajar es instantáneo
   });
 
   app.post('/api/onkyo/power', lim(20), async (req, reply) => {

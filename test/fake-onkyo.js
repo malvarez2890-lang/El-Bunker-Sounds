@@ -5,12 +5,17 @@ import { iscpFrame, iscpFrames } from '../server/onkyo.js';
 
 const listen = (srv) => new Promise((r) => srv.listen(0, '127.0.0.1', () => r(srv.address().port)));
 
-export async function startFakeOnkyo({ playMs = 1500, durSec = 8 } = {}) {
+export async function startFakeOnkyo({ playMs = 1500, durSec = 8, singleConn = true } = {}) {
   const dev = { power: false, input: '05', volume: 10 };
   const log = []; // todo lo que le piden, para comprobarlo
   const av = { uri: null, meta: null, state: 'NO_MEDIA_PRESENT', startedAt: 0, fetched: [], rejectPlays: 0 };
 
+  let active = 0;
   const iscp = net.createServer((sock) => {
+    // Como el equipo real: si ya hay una conexión abierta, rechaza la segunda.
+    if (singleConn && active > 0) { sock.destroy(); return; }
+    active++;
+    sock.on('close', () => { active--; });
     let buf = Buffer.alloc(0);
     sock.on('data', (d) => {
       buf = Buffer.concat([buf, d]);

@@ -105,6 +105,18 @@ describe('Onkyo (equipo simulado)', () => {
     assert.equal((await A('POST', '/api/onkyo/volume', { level: 'alto' })).statusCode, 400);
   });
 
+  test('subir el volumen mientras se consulta el estado no hace que parezca desconectado', async () => {
+    const jobs = [];
+    for (let i = 0; i < 12; i++) {
+      jobs.push(A('GET', '/api/onkyo').then((r) => r.json()));
+      jobs.push(A('POST', '/api/onkyo/volume', { level: 10 + i }).then((r) => r.json()));
+    }
+    const res = await Promise.all(jobs);
+    assert.ok(res.filter((r) => 'online' in r).every((r) => r.online === true), 'nunca debe salir "no responde"');
+    assert.equal(fake.dev.volume, 21);
+    assert.equal((await A('POST', '/api/onkyo/volume', { level: 20 })).json().volume, 20);
+  });
+
   test('pausa, seguir y saltar a otra de la cola', async () => {
     assert.equal((await A('POST', '/api/onkyo/control', { action: 'pause' })).json().state, 'paused');
     assert.equal(fake.av.state, 'PAUSED_PLAYBACK');
@@ -146,6 +158,7 @@ describe('Onkyo (equipo simulado)', () => {
 
   test('Onkyo desconectado: error claro, sin colgarse', async () => {
     fake.close();
+    await sleep(1700); // vence la memoria del último estado
     const s = (await A('GET', '/api/onkyo')).json();
     assert.equal(s.online, false);
     const r = await A('POST', '/api/onkyo/play', { ids });

@@ -101,7 +101,7 @@ async function login(page, email) {
 }
 
 let admin, friend;
-const until = async (fn, ms = 5000) => { const end = Date.now() + ms; while (!(await fn())) { if (Date.now() > end) throw new Error('tiempo agotado'); await new Promise((r) => setTimeout(r, 50)); } };
+const until = async (fn, ms = 5000) => { const end = Date.now() + ms; while (!(await fn())) { if (Date.now() > end) throw new Error('tiempo agotado: ' + fn.toString().slice(0, 90)); await new Promise((r) => setTimeout(r, 50)); } };
 
 test('pantalla de bienvenida y acceso', { skip: !pw }, async () => {
   admin = await newPage('admin');
@@ -683,8 +683,39 @@ test('Onkyo: el administrador lo ve, envía la cola, controla y el amigo no tien
   await page.locator('.onk-status', { hasText: 'En pausa' }).waitFor();
   await page.locator('.sheet').getByRole('button', { name: 'Siguiente' }).click();
   await page.waitForFunction((t) => document.querySelector('.onk-now .t')?.textContent !== t, first);
+  // Los botones normales de la app (tarjeta del reproductor y mini reproductor) manejan al Onkyo
+  await page.keyboard.press('Escape');
+  await page.locator('.sheet').waitFor({ state: 'detached' });
+  const card = page.locator('.player');
+  await card.getByText('Sonando en el Onkyo').waitFor();
+  const avCount = () => fakeOnkyo.log.filter((c) => c === 'AV:SetAVTransportURI').length;
+  const n0 = avCount();
+  await card.getByRole('button', { name: 'Siguiente' }).click();
+  await until(() => avCount() === n0 + 1);
+  await card.getByRole('button', { name: 'Anterior' }).click();
+  await until(() => avCount() === n0 + 2);
+  await card.getByRole('button', { name: 'Pausar' }).click();
+  await until(() => fakeOnkyo.av.state === 'PAUSED_PLAYBACK');
+  await card.getByRole('button', { name: 'Reproducir' }).click();
+  await until(() => fakeOnkyo.av.state === 'PLAYING');
+  assert.equal(await page.evaluate(() => !window.__a() || window.__a().paused), true, 'el teléfono sigue callado');
+  await page.waitForTimeout(450);
+  await shot(page, '62-onkyo-control-remoto');
+  await card.getByRole('button', { name: 'Cerrar reproductor' }).click();
+  await page.locator('.player').waitFor({ state: 'detached' });
+  await page.locator('#mini-toggle').click(); // el mini reproductor también pausa al Onkyo
+  await until(() => fakeOnkyo.av.state === 'PAUSED_PLAYBACK');
+  await page.waitForTimeout(500);
+  await page.locator('#mini-toggle').click();
+  await until(() => fakeOnkyo.av.state === 'PLAYING');
+  await page.locator('.mini .main').click();
+  await page.locator('.player').waitFor();
+  await page.waitForTimeout(450);
+  await page.locator('.player').getByRole('button', { name: 'Onkyo' }).click();
+  await page.locator('.sheet h3', { hasText: 'Onkyo TX-8130' }).waitFor();
   await page.getByRole('button', { name: 'Apagar el Onkyo' }).click();
   await page.locator('.onk-status', { hasText: 'Apagado' }).waitFor();
+  await page.waitForFunction(() => !document.body.textContent.includes('Sonando en el Onkyo'));
   assert.equal(fakeOnkyo.dev.power, false);
   await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');

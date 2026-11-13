@@ -105,7 +105,7 @@ export function openPlayer() {
       h('div', { class: 'glow' }),
       h('div', { class: 'top' },
         h('button', { class: 'icon-btn', 'aria-label': 'Cerrar reproductor', onclick: close }, icon('down')),
-        h('div', { class: 'eyebrow' }, 'Reproduciendo'),
+        els.eyebrow = h('div', { class: 'eyebrow' }, 'Reproduciendo'),
         h('span', { style: { width: '44px' } })),
       h('div', { class: 'art' }, cover(t, 'l')),
       h('div', { class: 'info' },
@@ -133,6 +133,7 @@ export function openPlayer() {
     if (!t) { close(); return; }
     if (shownId !== t.id) { shownId = t.id; build(t); }
     const pl = player.isPlayingUI(s);
+    els.eyebrow.textContent = player.isRemote() ? 'Sonando en el Onkyo' : 'Reproduciendo';
     clear(els.play).append(icon(pl ? 'pause' : 'play'));
     els.play.setAttribute('aria-label', pl ? 'Pausar' : 'Reproducir');
     els.play.classList.toggle('loading', !!s.loading);
