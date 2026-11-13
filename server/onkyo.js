@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { safeJoin } from './safe-path.js';
+import { createMp3Cache } from './media.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const esc = (s) => String(s ?? '').replace(/[<>&'"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' }[c]));
@@ -123,11 +124,11 @@ export function didl(track, url, mime) {
 
 const AVT = 'urn:schemas-upnp-org:service:AVTransport:1';
 
-export function createOnkyo({ config, db, lib, log }) {
+export function createOnkyo({ config, db, lib, log, transcoder }) {
   const cfg = config.onkyo;
   const enabled = !!(cfg.ip && cfg.lanIp);
   const out = { enabled, config: cfg };
-  if (!enabled) return Object.assign(out, { status: async () => ({ enabled: false }), listen: async () => null, close() {} });
+  if (!enabled) return Object.assign(out, { status: async () => ({ enabled: false }), listen: async () => null, prepare() {}, cleanup() {}, close() {} });
 
   // ---- clave para firmar enlaces (se guarda para que no cambie al reiniciar) ----
   const secretFile = path.join(config.dataDir, 'onkyo.secret');
@@ -140,11 +141,12 @@ export function createOnkyo({ config, db, lib, log }) {
     }
   }
   const sign = (payload) => b64u(crypto.createHmac('sha256', secret).update(payload).digest()).slice(0, 32);
-  const MIME = { m4a: 'audio/mp4', wav: 'audio/wav' };
+  const MIME = { m4a: 'audio/mp4', wav: 'audio/wav', mp3: 'audio/mpeg' };
+  const mp3 = cfg.format === 'mp3' ? createMp3Cache({ db, config, log, transcoder }) : null;
 
   /** Enlace temporal para una canción. */
   function mintUrl(trackId, ttlSec = cfg.linkTtlSec) {
-    const ext = cfg.format === 'wav' ? 'wav' : 'm4a';
+    const ext = cfg.format;
     const payload = b64u(JSON.stringify({ t: trackId, f: ext, e: Math.floor(Date.now() / 1000) + ttlSec }));
     return { url: `http://${cfg.lanIp}:${cfg.lanPort}/onkyo/${payload}.${sign(payload)}.${ext}`, mime: MIME[ext] };
   }
@@ -163,6 +165,7 @@ export function createOnkyo({ config, db, lib, log }) {
 
   // ---- servidor aparte (solo para el Onkyo): GET /onkyo/<token>.<ext> ----
   function fileFor(trackId, ext) {
+    if (ext === 'mp3') return mp3 ? mp3.pathIfReady(trackId) : null;
     const t = db.prepare('SELECT src_rel, audio_file, audio_status FROM tracks WHERE id=? AND missing=0').get(trackId);
     if (!t) return null;
     if (ext === 'wav') {
@@ -175,7 +178,7 @@ export function createOnkyo({ config, db, lib, log }) {
   const lan = http.createServer((req, res) => {
     const fail = (code) => { res.writeHead(code, { 'content-type': 'text/plain' }); res.end(); };
     if (req.method !== 'GET' && req.method !== 'HEAD') return fail(405);
-    const m = /^\/onkyo\/([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\.(m4a|wav)$/.exec((req.url || '').split('?')[0]);
+    const m = /^\/onkyo\/([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\.(m4a|wav|mp3)$/.exec((req.url || '').split('?')[0]);
     if (!m) return fail(404);
     const id = verify(m[1], m[2]);
     const file = id != null ? fileFor(id, m[2]) : null;
@@ -273,6 +276,8 @@ export function createOnkyo({ config, db, lib, log }) {
 
   async function loadAndPlay(i) {
     const t = S.queue[i];
+    S.index = i; S.state = 'loading'; S.err = null;
+    if (mp3) { await mp3.ensure(t.id); const n = S.queue[i + 1]; if (n) mp3.prefetch(n.id); } // el MP3 de esta (y la siguiente) debe existir antes de enviar el enlace
     const { url, mime } = mintUrl(t.id);
     S.index = i; S.pos = 0; S.dur = t.duration || 0; S.sawPlaying = false; S.startedAt = Date.now(); S.state = 'loading'; S.err = null;
     await av('SetAVTransportURI', `<CurrentURI>${esc(url)}</CurrentURI><CurrentURIMetaData>${esc(didl(t, url, mime))}</CurrentURIMetaData>`);
@@ -366,6 +371,8 @@ export function createOnkyo({ config, db, lib, log }) {
     S.state = 'idle'; S.queue = []; S.index = -1; stopPolling();
     return { power: false };
   };
+  out.prepare = () => mp3?.prepareAll();
+  out.cleanup = () => mp3?.cleanup();
   out.close = () => { stopPolling(); lan.close(); lan.closeAllConnections?.(); };
   return out;
 }

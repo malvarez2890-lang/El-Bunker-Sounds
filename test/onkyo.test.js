@@ -30,7 +30,7 @@ describe('Onkyo (equipo simulado)', () => {
     fake = await startFakeOnkyo();
     lanPort = await freePort();
     t = await makeApp({
-      ONKYO_IP: '127.0.0.1', ONKYO_LAN_IP: '127.0.0.1', ONKYO_LAN_PORT: String(lanPort), ONKYO_LAN_HOST: '127.0.0.1',
+      ONKYO_IP: '127.0.0.1', ONKYO_LAN_IP: '127.0.0.1', ONKYO_LAN_PORT: String(lanPort), ONKYO_LAN_HOST: '127.0.0.1', ONKYO_FORMAT: 'm4a',
       ONKYO_EISCP_PORT: String(fake.eiscpPort), ONKYO_UPNP_PORT: String(fake.upnpPort),
       ONKYO_END_SLACK: '2', ONKYO_POLL_MS: '150', ONKYO_RETRY_MS: '50', ONKYO_BOOT_WAIT_MS: '100', ONKYO_INPUT_WAIT_MS: '50', ONKYO_MAX_VOLUME: '50',
     });
@@ -187,5 +187,45 @@ describe('Onkyo con WAV originales', () => {
     assert.match(f.uri, /\.wav$/);
     assert.equal(f.type, 'audio/wav');
     assert.ok(f.bytes > 100000);
+  });
+});
+
+describe('Onkyo con MP3 (formato por defecto)', () => {
+  let t, fake, A, lanPort;
+  before(async () => {
+    fake = await startFakeOnkyo();
+    lanPort = await freePort();
+    t = await makeApp({
+      ONKYO_IP: '127.0.0.1', ONKYO_LAN_IP: '127.0.0.1', ONKYO_LAN_PORT: String(lanPort), ONKYO_LAN_HOST: '127.0.0.1',
+      ONKYO_EISCP_PORT: String(fake.eiscpPort), ONKYO_UPNP_PORT: String(fake.upnpPort), ONKYO_POLL_MS: '150', ONKYO_BOOT_WAIT_MS: '100', ONKYO_INPUT_WAIT_MS: '50',
+    });
+    await t.ctx.onkyo.listen();
+    A = t.api((await t.login('admin@test.cl')).cookie);
+  });
+  after(async () => { await t.close(); fake.close(); });
+
+  test('crea un MP3 de verdad (320k, estéreo, 44,1 kHz), lo manda con el tipo correcto y prepara el siguiente', async () => {
+    assert.equal(t.config.onkyo.format, 'mp3');
+    const ids = (await A('GET', '/api/albums/1')).json().tracks.map((x) => x.id);
+    const r = await A('POST', '/api/onkyo/play', { ids });
+    assert.equal(r.statusCode, 200, r.body);
+    const f = fake.av.fetched[0];
+    assert.match(f.uri, /\.mp3$/);
+    assert.equal(f.type, 'audio/mpeg');
+    assert.equal(f.status, 206);
+    const dir = path.join(t.dataDir, 'onkyo-mp3');
+    const first = fs.readdirSync(dir).filter((x) => x.endsWith('.mp3'));
+    assert.ok(first.length >= 1);
+    const probe = JSON.parse((await import('node:child_process')).execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_name,sample_rate,channels,bit_rate', '-of', 'json', path.join(dir, first[0])]).toString());
+    assert.equal(probe.streams[0].codec_name, 'mp3');
+    assert.equal(probe.streams[0].sample_rate, '44100');
+    assert.equal(probe.streams[0].channels, 2);
+    assert.ok(Number(probe.streams[0].bit_rate) > 300000);
+    assert.ok(f.bytes > 5000);
+    // la siguiente canción de la cola ya se está preparando
+    await until(() => fs.readdirSync(dir).filter((x) => x.endsWith('.mp3')).length >= 2, 15000);
+    // el enlace de un MP3 no sirve con otra extensión
+    const good = new URL(fake.av.uri);
+    assert.equal((await fetch(`http://127.0.0.1:${lanPort}${good.pathname.replace(/\.mp3$/, '.m4a')}`)).status, 403);
   });
 });

@@ -31,8 +31,8 @@ export async function buildApp(config, { logger = true } = {}) {
   const auth = createAuth({ db, config, mailer, log });
   const lib = createLibraryQueries(db);
   const transcoder = createTranscoder({ db, config, log });
+  const onkyo = createOnkyo({ config, db, lib, log, transcoder });
   const covers = createCovers({ config });
-  const onkyo = createOnkyo({ config, db, lib, log });
   app.addHook('onClose', async () => onkyo.close());
 
   // Escaneo de la biblioteca (uno a la vez), luego convierte lo nuevo.
@@ -48,6 +48,8 @@ export async function buildApp(config, { logger = true } = {}) {
           lastScan = { at: Date.now(), ...(await scanLibrary({ db, config, log })) };
           transcoder.kick();
           transcoder.cleanup().catch(() => {});
+          onkyo.cleanup()?.catch?.(() => {});
+          onkyo.prepare();
         } catch (err) {
           lastScan = { at: Date.now(), error: err.message };
           log.error({ err: err.message }, 'falló el escaneo');
