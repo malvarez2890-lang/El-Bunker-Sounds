@@ -184,7 +184,7 @@ def puertos_abiertos(ip, puertos, timeout=0.3):
     with ThreadPoolExecutor(400) as ex:
         return sorted(p for p in ex.map(probe, puertos) if p)
 
-DESC_PATHS = ['/description.xml', '/desc.xml', '/DeviceDescription.xml', '/rootDesc.xml', '/upnp/desc.xml', '/upnp/device.xml', '/dmr/rootdesc.xml',
+DESC_PATHS = ['/upnp_descriptor_0', '/description.xml', '/desc.xml', '/DeviceDescription.xml', '/rootDesc.xml', '/upnp/desc.xml', '/upnp/device.xml', '/dmr/rootdesc.xml',
               '/dmr/desc.xml', '/MediaRenderer/desc.xml', '/MediaRenderer.xml', '/xml/device_description.xml', '/xml/desc.xml', '/device.xml',
               '/dev/desc.xml', '/dd.xml', '/upnp.xml', '/rootdesc.xml', '/Basic/rootDesc.xml', '/DLNA/desc.xml', '/ssdp/device-desc.xml']
 
