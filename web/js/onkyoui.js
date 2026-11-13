@@ -12,8 +12,11 @@ const ERR = {
   onkyo_sin_conexion: 'No encuentro el Onkyo en la red. Revisa que esté enchufado y con el cable de red.',
   onkyo_no_enciende: 'El Onkyo no encendió. Prueba con el botón de su control.',
   sin_canciones: 'No hay canciones listas en la cola.',
+  onkyo_mp3_fallo: 'No pude preparar el MP3 de esta canción.',
+  onkyo_rechazo: 'El Onkyo rechazó la canción.',
+  onkyo_error: 'El Onkyo no pudo reproducirla.',
 };
-const errMsg = (e) => ERR[e?.code] || errorText(e);
+const errMsg = (e) => (ERR[e?.code] ? ERR[e.code] + (e.detail ? ` (${String(e.detail).slice(0, 70)})` : '') : errorText(e));
 
 // ---------- control remoto: los botones normales de la app (mini reproductor, tarjeta, pantalla de bloqueo) mandan al Onkyo ----------
 let rs = null;   // último estado conocido del Onkyo
@@ -84,10 +87,10 @@ export function openOnkyo() {
       if (gone) return;
       if (!s) return;
       const live = s.online && s.power;
-      status.textContent = !s.online && misses < 2 ? 'Conectando…' : !s.online ? 'No responde. Revisa que esté enchufado y con el cable de red.'
+      status.textContent = s.error && s.state === 'stopped' ? `No pude reproducir: ${String(s.error).slice(0, 90)}` : !s.online && misses < 2 ? 'Conectando…' : !s.online ? 'No responde. Revisa que esté enchufado y con el cable de red.'
         : !s.power ? 'Apagado'
           : `Encendido · ${s.input === '2B' ? 'entrada Red (NET)' : 'otra entrada'}${s.state && s.state !== 'idle' ? ` · ${STATE[s.state] || ''}` : ''}`;
-      status.classList.toggle('bad', !s.online && misses >= 2);
+      status.classList.toggle('bad', (!s.online && misses >= 2) || !!(s.error && s.state === 'stopped'));
       fill(now, s.track && live ? [h('div', { class: 't' }, s.track.title), h('div', { class: 's' }, `${s.track.artistName} · ${fmtTime(s.position)} / ${fmtTime(s.track.duration)}`)] : null);
       const pl = s.state === 'playing' || s.state === 'loading';
       fill(ctl, s.track && live ? [

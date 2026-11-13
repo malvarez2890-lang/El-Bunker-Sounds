@@ -109,6 +109,7 @@ export function createMp3Cache({ db, config, log, transcoder }) {
   const jobs = new Map();   // id -> { promise, resolve, reject, started }
   const queue = [];         // ids por convertir (los urgentes se agregan al principio)
   let working = false;
+  const failed = new Set(); // canciones que ya fallaron: el segundo plano no las reintenta en bucle
 
   const row = (id) => db.prepare('SELECT id, src_rel AS rel, src_mtime AS mtime FROM tracks WHERE id=? AND missing=0').get(id);
   const fileOf = (t) => path.join(dir, `${t.id}-${t.mtime}.mp3`);
@@ -136,6 +137,7 @@ export function createMp3Cache({ db, config, log, transcoder }) {
           job?.resolve(out);
         } catch (err) {
           log?.warn?.({ track: id, err: err.message }, 'no se pudo crear el MP3 para el Onkyo');
+          failed.add(id);
           job?.reject(err);
         } finally { jobs.delete(id); }
       }
@@ -161,7 +163,7 @@ export function createMp3Cache({ db, config, log, transcoder }) {
     /** Ruta del MP3 si ya existe (para servirlo); si no, null. */
     pathIfReady(id) { const t = row(id); return t && exists(fileOf(t)) ? fileOf(t) : null; },
     /** Devuelve la ruta del MP3, creándolo ya si falta. */
-    async ensure(id) { const t = row(id); if (!t) throw new Error('canción no encontrada'); const f = fileOf(t); return exists(f) ? f : enqueue(id, true); },
+    async ensure(id) { const t = row(id); if (!t) throw new Error('canción no encontrada'); const f = fileOf(t); if (exists(f)) return f; failed.delete(id); return enqueue(id, true); }, // pedida a mano: se intenta de nuevo
     /** Deja lista una canción sin esperar (la siguiente de la cola). */
     prefetch(id) { const t = row(id); if (t && !exists(fileOf(t))) enqueue(id, true).catch(() => {}); },
     /** Prepara toda la biblioteca poco a poco, solo cuando el servidor no está convirtiendo M4A. */
@@ -172,7 +174,7 @@ export function createMp3Cache({ db, config, log, transcoder }) {
           for (;;) {
             if (transcoder && !transcoder.idle()) { await new Promise((r) => setTimeout(r, 5000)); continue; }
             const ids = db.prepare("SELECT id FROM tracks WHERE missing=0 AND audio_status='ok' ORDER BY album_id, track_no, id").all().map((r) => r.id);
-            const next = ids.find((id) => { const t = row(id); return t && !exists(fileOf(t)) && !jobs.has(id); });
+            const next = ids.find((id) => { const t = row(id); return t && !failed.has(id) && !exists(fileOf(t)) && !jobs.has(id); });
             if (next == null) break;
             await enqueue(next, false).catch(() => {});
           }

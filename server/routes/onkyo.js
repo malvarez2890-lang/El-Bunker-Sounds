@@ -6,7 +6,9 @@ export default async function onkyoRoutes(app, { auth, onkyo }) {
   const fail = (reply, err) => {
     const code = String(err?.message || 'error');
     const map = { onkyo_sin_conexion: 502, onkyo_no_enciende: 504, sin_canciones: 400, accion_invalida: 400, nada_que_controlar: 409 };
-    return reply.code(map[code] || 502).send({ error: /^[a-z_0-9]+$/i.test(code) ? code : 'onkyo_error' });
+    const known = map[code] != null;
+    const kind = known ? code : /^upnp_/.test(code) ? 'onkyo_rechazo' : /ffmpeg|mp3|ruta de origen|canci[oó]n no encontrada|terminó con código/i.test(code) ? 'onkyo_mp3_fallo' : 'onkyo_error';
+    return reply.code(map[code] || 502).send({ error: kind, detail: known ? undefined : code.slice(0, 160) });
   };
 
   app.get('/api/onkyo', lim(120), async (req, reply) => (need(reply) ? onkyo.status() : undefined));

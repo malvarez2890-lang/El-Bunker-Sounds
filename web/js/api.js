@@ -1,5 +1,5 @@
 export class ApiError extends Error {
-  constructor(status, code) { super(code || `HTTP ${status}`); this.status = status; this.code = code; }
+  constructor(status, code, detail) { super(code || `HTTP ${status}`); this.status = status; this.code = code; this.detail = detail; }
 }
 
 const listeners = new Set();
@@ -23,7 +23,7 @@ export async function api(method, url, body) {
   try { data = await res.json(); } catch { /* sin cuerpo */ }
   if (!res.ok) {
     if (res.status === 401 && !url.startsWith('/api/auth/') && url !== '/api/me') listeners.forEach((fn) => fn());
-    throw new ApiError(res.status, data?.error);
+    throw new ApiError(res.status, data?.error, data?.detail);
   }
   if (method !== 'GET') mutationListeners.forEach((fn) => fn());
   return data;

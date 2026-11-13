@@ -229,3 +229,43 @@ describe('Onkyo con MP3 (formato por defecto)', () => {
     assert.equal((await fetch(`http://127.0.0.1:${lanPort}${good.pathname.replace(/\.mp3$/, '.m4a')}`)).status, 403);
   });
 });
+
+describe('Onkyo: preparar el MP3 no cuelga la petición, y los fallos se explican', () => {
+  let t, fake, A, lanPort, ids;
+  before(async () => {
+    fake = await startFakeOnkyo();
+    lanPort = await freePort();
+    t = await makeApp({
+      ONKYO_IP: '127.0.0.1', ONKYO_LAN_IP: '127.0.0.1', ONKYO_LAN_PORT: String(lanPort), ONKYO_LAN_HOST: '127.0.0.1', ONKYO_FAST_MS: '1',
+      ONKYO_EISCP_PORT: String(fake.eiscpPort), ONKYO_UPNP_PORT: String(fake.upnpPort), ONKYO_POLL_MS: '150', ONKYO_BOOT_WAIT_MS: '100', ONKYO_INPUT_WAIT_MS: '50', ONKYO_RETRY_MS: '50',
+    });
+    await t.ctx.onkyo.listen();
+    A = t.api((await t.login('admin@test.cl')).cookie);
+    ids = (await A('GET', '/api/albums/1')).json().tracks.map((x) => x.id);
+  });
+  after(async () => { await t.close(); fake.close(); });
+
+  test('si tarda, responde "cargando" enseguida y termina sonando en segundo plano', async () => {
+    const r = await A('POST', '/api/onkyo/play', { ids });
+    assert.equal(r.statusCode, 200, r.body);
+    assert.ok(['loading', 'playing'].includes(r.json().state));
+    await until(async () => (await A('GET', '/api/onkyo')).json().state === 'playing', 15000);
+    assert.equal(fake.av.fetched[0].type, 'audio/mpeg');
+    // pedir "siguiente" mientras todavía está cargando no se pisa con la carga anterior
+    const n = await A('POST', '/api/onkyo/control', { action: 'next' });
+    assert.equal(n.statusCode, 200);
+    await until(async () => { const s = (await A('GET', '/api/onkyo')).json(); return s.index === 1 && s.state === 'playing'; }, 15000);
+  });
+
+  test('si no se puede preparar el MP3, la app lo dice (no solo "problema del servidor")', async () => {
+    t.ctx.db.prepare("UPDATE tracks SET src_rel='no-existe.wav' WHERE id=?").run(ids[0]);
+    const dir = path.join(t.dataDir, 'onkyo-mp3');
+    for (const f of fs.readdirSync(dir)) if (f.startsWith(`${ids[0]}-`)) fs.unlinkSync(path.join(dir, f)); // sin copia ya hecha
+    await A('POST', '/api/onkyo/control', { action: 'stop' });
+    const r = await A('POST', '/api/onkyo/play', { ids: [ids[0]] });
+    let s;
+    if (r.statusCode === 200) s = (await until(async () => { const x = (await A('GET', '/api/onkyo')).json(); return x.state === 'stopped' && x.error ? x : null; }, 8000));
+    else { assert.equal(r.statusCode, 502); assert.equal(r.json().error, 'onkyo_mp3_fallo'); assert.ok(r.json().detail); return; }
+    assert.ok(s.error.length > 3);
+  });
+});

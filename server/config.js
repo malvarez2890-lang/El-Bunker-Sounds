@@ -51,6 +51,7 @@ export function loadConfig(overrides = {}) {
       maxVolume: Math.min(80, Math.max(1, Number(e.ONKYO_MAX_VOLUME || 50))), // tope de seguridad (el TX-8130 llega a 80)
       secret: e.ONKYO_SECRET || '',
       linkTtlSec: Number(e.ONKYO_LINK_TTL || 1800),
+      fastMs: Number(e.ONKYO_FAST_MS || 8000),       // cuánto espera la app antes de responder "cargando" (la conversión sigue en segundo plano)
       endSlackSec: Number(e.ONKYO_END_SLACK || 6),   // si se detiene a menos de estos segundos del final, se considera que terminó
       pollMs: Number(e.ONKYO_POLL_MS || 2000),
       retryMs: Number(e.ONKYO_RETRY_MS || 1500),

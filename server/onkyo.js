@@ -328,40 +328,57 @@ export function createOnkyo({ config, db, lib, log, transcoder }) {
     };
   };
 
+  // Si el trabajo (convertir el MP3, encender, enviar) tarda más de unos segundos, se responde igual con "cargando" y sigue en segundo plano.
+  const FAST_MS = cfg.fastMs;
+  const settle = (job) => Promise.race([job, sleep(FAST_MS)]);
+  /** Espera un trabajo anterior; si sigue en curso pasado el límite, devuelve false (la orden nueva se ignora: ya está cargando). */
+  const idle = async () => { if (S.busy) await settle(S.busy.catch(() => {})); return !S.busy; };
+  const track = (job) => job.catch((e) => { S.state = 'stopped'; S.err = String(e.message || e).slice(0, 160); log.warn({ err: S.err }, 'Onkyo: no pude reproducir'); throw e; });
+
   out.play = async (userId, ids, index = 0) => {
-    if (S.busy) await S.busy.catch(() => {});
+    if (!(await idle())) return;
     const tracks = lib.byIds(userId, ids).filter((t) => t.ready);
     const order = new Map(ids.map((id, i) => [id, i]));
     tracks.sort((a, b) => order.get(a.id) - order.get(b.id));
     if (!tracks.length) throw new Error('sin_canciones');
     const startId = ids[Math.min(Math.max(index, 0), ids.length - 1)];
     const start = Math.max(0, tracks.findIndex((t) => t.id === startId));
-    S.busy = (async () => {
+    S.state = 'loading'; S.err = null; S.index = -1; S.queue = [];
+    const job = track((async () => {
       const d = await powerOn();
       if (d.input !== '2B') { await iscpDo(cfg, 'SLI2B'); devCache = null; await sleep(cfg.inputWaitMs); }
       S.queue = tracks;
       await loadAndPlay(start);
-    })().catch((e) => { S.state = 'stopped'; S.err = e.message; throw e; }).finally(() => { S.busy = null; });
-    return S.busy;
+    })()).finally(() => { if (S.busy === job) S.busy = null; });
+    S.busy = job;
+    job.catch(() => {}); // si ya respondimos, el error queda en el estado (error) y no como rechazo sin atender
+    await settle(job);
   };
 
+  async function startLoad(i) {
+    const job = track(loadAndPlay(i)).finally(() => { if (S.busy === job) S.busy = null; });
+    S.busy = job;
+    job.catch(() => {});
+    await settle(job);
+  }
+
   out.control = async (action) => {
-    if (S.busy) await S.busy.catch(() => {});
+    if (!(await idle())) return;
     if (!S.queue.length && action !== 'stop') throw new Error('nada_que_controlar');
     switch (action) {
       case 'pause': await av('Pause'); S.state = 'paused'; break;
       case 'resume': await av('Play', '<Speed>1</Speed>'); S.state = 'playing'; startPolling(); break;
       case 'stop': try { await av('Stop'); } catch { /* ya estaba detenido */ } S.state = 'stopped'; stopPolling(); break;
-      case 'next': if (S.index + 1 < S.queue.length) await (S.busy = loadAndPlay(S.index + 1).finally(() => { S.busy = null; })); break;
-      case 'prev': await (S.busy = loadAndPlay(S.pos > 4 ? S.index : Math.max(0, S.index - 1)).finally(() => { S.busy = null; })); break;
+      case 'next': if (S.index + 1 < S.queue.length) await startLoad(S.index + 1); break;
+      case 'prev': await startLoad(S.pos > 4 ? S.index : Math.max(0, S.index - 1)); break;
       case 'jump': break;
       default: throw new Error('accion_invalida');
     }
   };
   out.jump = async (i) => {
-    if (S.busy) await S.busy.catch(() => {});
+    if (!(await idle())) return;
     if (!Number.isInteger(i) || i < 0 || i >= S.queue.length) throw new Error('accion_invalida');
-    await (S.busy = loadAndPlay(i).finally(() => { S.busy = null; }));
+    await startLoad(i);
   };
   out.setVolume = setVolume;
   out.power = async (on) => {
