@@ -284,6 +284,14 @@ export function createOnkyo({ config, db, lib, log, transcoder }) {
     if (mp3) { await mp3.ensure(t.id); const n = S.queue[i + 1]; if (n) mp3.prefetch(n.id); } // el MP3 de esta (y la siguiente) debe existir antes de enviar el enlace
     const { url, mime } = mintUrl(t.id);
     S.index = i; S.pos = 0; S.dur = t.duration || 0; S.sawPlaying = false; S.startedAt = Date.now(); S.state = 'loading'; S.err = null;
+    // Siempre se parte de un transporte limpio: el Onkyo real queda "trabado" (rechaza todo con 501) si se le cambia el enlace en pleno movimiento.
+    try { await av('Stop'); } catch { /* ya estaba detenido */ }
+    for (let k = 0; k < 6; k++) {
+      let st = '';
+      try { st = tag(await av('GetTransportInfo'), 'CurrentTransportState'); } catch { break; }
+      if (st !== 'PLAYING' && st !== 'TRANSITIONING') break;
+      await sleep(300);
+    }
     // Algunos equipos rechazan (error 501) ciertos metadatos: se prueba normal, luego estilo DLNA completo, y al final sin metadatos.
     const metas = [didl(t, url, mime), didl(t, url, mime, true), ''];
     let setErr;
