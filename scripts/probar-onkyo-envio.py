@@ -40,12 +40,23 @@ try:
 except Exception as e:
     sys.exit(f'No pude leer la descripción del Onkyo en {base}: {e}')
 ctl = None
+scpd = None
 for blk in re.findall(r'<service>.*?</service>', desc, re.S):
     if 'AVTransport' in blk:
         ctl = urljoin(base, re.search(r'<controlURL>(.*?)</controlURL>', blk).group(1))
+        m = re.search(r'<SCPDURL>(.*?)</SCPDURL>', blk)
+        scpd = urljoin(base, m.group(1)) if m else None
 if not ctl:
     sys.exit('El Onkyo no ofrece AVTransport.')
 print(f'Onkyo: {onkyo}   control: {ctl}')
+# Qué sabe hacer el Onkyo (solo lectura): sirve para saber si acepta "dejar lista la siguiente canción" (sin silencio entre canciones) y saltar de minuto.
+try:
+    acts = sorted(set(re.findall(r'<action>\s*<name>(.*?)</name>', get(scpd), re.S)))
+    print('Acciones que ofrece:', ', '.join(acts))
+    print('  · Saltar de minuto (Seek):', 'SÍ' if 'Seek' in acts else 'NO')
+    print('  · Dejar lista la siguiente (SetNextAVTransportURI):', 'SÍ' if 'SetNextAVTransportURI' in acts else 'NO')
+except Exception as e:
+    print('(No pude leer la lista de acciones del Onkyo:', e, ')')
 c, t = soap(ctl, 'GetTransportInfo')
 print('Estado del transporte:', re.search(r'<CurrentTransportState>(.*?)<', t).group(1) if c == 200 and '<CurrentTransportState>' in t else f'error {c} {t}')
 print('Detengo cualquier cosa anterior (Stop)…', soap(ctl, 'Stop')[0])
