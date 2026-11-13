@@ -98,8 +98,8 @@ export async function buildApp(config, { logger = true } = {}) {
   // Archivos de la app (HTML, JS, CSS, fuentes e iconos): son públicos; la música no.
   await app.register(fastifyStatic, {
     root: webDir,
-    setHeaders(res, file) {
-      res.setHeader('Cache-Control', /[\\/](fonts|icons)[\\/]/.test(file) ? 'public, max-age=31536000, immutable' : 'no-cache');
+    setHeaders(reply, file) {
+      reply.header('Cache-Control', /[\\/](fonts|icons)[\\/]/.test(file) ? 'public, max-age=31536000, immutable' : 'no-cache');
     },
   });
 

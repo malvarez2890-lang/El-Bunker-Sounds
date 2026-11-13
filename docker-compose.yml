@@ -1,0 +1,46 @@
+# El Búnker Sound: la app + su propio nodo de Tailscale (así tiene su propio nombre *.ts.net y su propio puerto 443,
+# sin tocar el de Valheim ni el de las cámaras).
+services:
+  tailscale:
+    image: tailscale/tailscale:stable
+    container_name: bunker-sound-ts
+    hostname: musica
+    environment:
+      TS_AUTHKEY: ${TS_AUTHKEY:-}
+      TS_HOSTNAME: ${TS_HOSTNAME:-musica}
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_USERSPACE: "true"
+      TS_SERVE_CONFIG: /config/serve.json
+      TS_EXTRA_ARGS: --advertise-tags=tag:musica
+    volumes:
+      - ts-state:/var/lib/tailscale
+      - ./deploy/tailscale-serve.json:/config/serve.json:ro
+    restart: unless-stopped
+    mem_limit: 128m
+
+  app:
+    build: .
+    image: bunker-sound-app
+    container_name: bunker-sound-app
+    network_mode: service:tailscale     # la app solo es visible a través de Tailscale (no abre puertos en tu red)
+    depends_on: [tailscale]
+    env_file: .env
+    environment:
+      PORT: "3000"
+      HOST: 127.0.0.1
+      MUSIC_DIR: /music
+      DATA_DIR: /data
+      TRUST_PROXY: "1"
+    volumes:
+      - ${MUSIC_HOST_DIR:-./music}:/music:ro   # tu música, solo lectura
+      - app-data:/data
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 384m
+    restart: unless-stopped
+
+volumes:
+  ts-state:
+  app-data:

@@ -13,7 +13,8 @@ export function loadConfig(overrides = {}) {
     host: e.HOST || '0.0.0.0',
     baseUrl,
     secureCookies: baseUrl.startsWith('https://'),
-    trustProxy: truthy(e.TRUST_PROXY, false),
+    // Número = cuántos proxies confiar (1 = solo el de Tailscale; así nadie puede falsear su IP para saltarse los límites).
+    trustProxy: /^\d+$/.test(String(e.TRUST_PROXY ?? '')) ? Number(e.TRUST_PROXY) : truthy(e.TRUST_PROXY, false),
     musicDir: path.resolve(e.MUSIC_DIR || './music'),
     dataDir: path.resolve(e.DATA_DIR || './data'),
     adminEmails: (e.ADMIN_EMAILS || '')

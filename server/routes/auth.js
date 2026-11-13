@@ -49,10 +49,8 @@ export default async function authRoutes(app, { auth, config }) {
     return { ok: true };
   });
 
-  app.get('/api/me', async (req, reply) => {
-    if (!auth.needUser(req, reply)) return;
-    return { user: auth.publicUser(req.user) };
-  });
+  // Sin sesión responde user:null (200) para que el navegador no muestre errores rojos en la consola.
+  app.get('/api/me', async (req) => ({ user: req.user ? auth.publicUser(req.user) : null }));
 
   app.patch('/api/me', async (req, reply) => {
     if (!auth.needUser(req, reply)) return;

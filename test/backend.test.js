@@ -63,7 +63,8 @@ describe('servidor', () => {
   });
 
   test('sin sesión no se puede nada (música, carátulas, biblioteca)', async () => {
-    for (const url of ['/api/home', '/api/stream/1', '/api/cover/1/s', '/api/albums/1', '/api/me']) {
+    assert.equal((await t.app.inject({ method: 'GET', url: '/api/me' })).json().user, null);
+    for (const url of ['/api/home', '/api/stream/1', '/api/cover/1/s', '/api/albums/1']) {
       const r = await t.app.inject({ method: 'GET', url });
       assert.equal(r.statusCode, 401, url);
     }
@@ -245,9 +246,10 @@ describe('servidor', () => {
   test('cerrar sesión invalida la cookie', async () => {
     const x = await t.login('salir@test.cl');
     const X = t.api(x.cookie);
-    assert.equal((await X('GET', '/api/me')).statusCode, 200);
+    assert.equal((await X('GET', '/api/me')).json().user.email, 'salir@test.cl');
     await X('POST', '/api/auth/logout', {});
-    assert.equal((await X('GET', '/api/me')).statusCode, 401);
+    assert.equal((await X('GET', '/api/me')).json().user, null);
+    assert.equal((await X('GET', '/api/home')).statusCode, 401);
   });
 
   test('rescaneo: un archivo borrado se oculta y vuelve si regresa', async () => {
@@ -258,5 +260,70 @@ describe('servidor', () => {
     await t.ctx.transcoder.whenIdle();
     assert.equal((await F('GET', '/api/albums')).json().albums.length, before);
     assert.equal(t.ctx.transcoder.status().pending, 0, 'un segundo escaneo no debe reconvertir nada');
+  });
+});
+
+describe('inicio con Google (servidor de Google simulado)', () => {
+  let t, fakeGoogle, tokenCalls = [];
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  let claims;
+  before(async () => {
+    const http = await import('node:http');
+    fakeGoogle = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', (d) => (body += d));
+      req.on('end', () => {
+        tokenCalls.push(Object.fromEntries(new URLSearchParams(body)));
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ id_token: `${b64({ alg: 'none' })}.${b64(claims)}.sig` }));
+      });
+    });
+    await new Promise((r) => fakeGoogle.listen(0, '127.0.0.1', r));
+    const port = fakeGoogle.address().port;
+    t = await makeApp({ GOOGLE_CLIENT_ID: 'cid.apps.googleusercontent.com', GOOGLE_CLIENT_SECRET: 'sec', GOOGLE_TOKEN_URL: `http://127.0.0.1:${port}/token` });
+  });
+  after(async () => { await t.close(); fakeGoogle.close(); });
+
+  async function flow(over = {}) {
+    claims = { iss: 'https://accounts.google.com', aud: 'cid.apps.googleusercontent.com', exp: Math.floor(Date.now() / 1000) + 600, email: 'gente@gmail.com', email_verified: true, sub: '123', name: 'Gente Buena', ...over };
+    const start = await t.app.inject({ method: 'GET', url: '/api/auth/google/start' });
+    assert.equal(start.statusCode, 302);
+    const loc = new URL(start.headers.location);
+    assert.equal(loc.host, 'accounts.google.com');
+    assert.equal(loc.searchParams.get('client_id'), 'cid.apps.googleusercontent.com');
+    assert.equal(loc.searchParams.get('redirect_uri'), 'http://localhost:3999/api/auth/google/callback');
+    assert.equal(loc.searchParams.get('code_challenge_method'), 'S256');
+    const oauth = start.cookies.find((c) => c.name === 'ebs_oauth');
+    return { state: loc.searchParams.get('state'), cookie: `ebs_oauth=${oauth.value}` };
+  }
+
+  test('flujo correcto: crea al usuario como pendiente y abre sesión', async () => {
+    assert.equal((await t.app.inject({ method: 'GET', url: '/api/auth/config' })).json().google, true);
+    const { state, cookie } = await flow();
+    const cb = await t.app.inject({ method: 'GET', url: `/api/auth/google/callback?code=abc&state=${state}`, headers: { cookie } });
+    assert.equal(cb.statusCode, 302);
+    assert.equal(cb.headers.location, '/');
+    assert.equal(tokenCalls.at(-1).code, 'abc');
+    assert.ok(tokenCalls.at(-1).code_verifier.length > 30, 'debe enviar el verificador PKCE');
+    const sid = cb.cookies.find((c) => c.name === 'ebs_sid').value;
+    const me = (await t.app.inject({ method: 'GET', url: '/api/me', headers: { cookie: `ebs_sid=${sid}` } })).json().user;
+    assert.equal(me.email, 'gente@gmail.com');
+    assert.equal(me.name, 'Gente Buena');
+    assert.equal(me.status, 'pending');
+  });
+
+  test('rechaza estado falso, cuenta sin verificar y token de otra app', async () => {
+    const a = await flow();
+    const r1 = await t.app.inject({ method: 'GET', url: '/api/auth/google/callback?code=abc&state=otro', headers: { cookie: a.cookie } });
+    assert.equal(r1.headers.location, '/#/entrar?error=google');
+    const b = await flow({ email_verified: false, email: 'x@gmail.com' });
+    const r2 = await t.app.inject({ method: 'GET', url: `/api/auth/google/callback?code=abc&state=${b.state}`, headers: { cookie: b.cookie } });
+    assert.equal(r2.headers.location, '/#/entrar?error=google');
+    assert.equal(r2.cookies.find((c) => c.name === 'ebs_sid'), undefined);
+    const c = await flow({ aud: 'otra-app', email: 'y@gmail.com' });
+    const r3 = await t.app.inject({ method: 'GET', url: `/api/auth/google/callback?code=abc&state=${c.state}`, headers: { cookie: c.cookie } });
+    assert.equal(r3.headers.location, '/#/entrar?error=google');
+    const d = await t.app.inject({ method: 'GET', url: '/api/auth/google/callback?code=abc' });
+    assert.equal(d.headers.location, '/#/entrar?error=google');
   });
 });
