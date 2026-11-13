@@ -141,6 +141,22 @@ Mándales la dirección. Ellos escriben su correo (o entran con Google), y tú l
   ```
 - Ver registros: `docker compose logs --tail=50 app`
 
+## 10. Enviar música al Onkyo (opcional)
+
+Solo para ti (administrador). En el reproductor aparece un botón **Onkyo**: elige la cola que suena y el Onkyo la reproduce por la red cableada, sin Bluetooth.
+
+1. En el servidor, agrega estas dos líneas a tu `.env` (son direcciones, no claves):
+   ```
+   echo 'ONKYO_IP=192.168.100.10' >> .env
+   echo 'ONKYO_LAN_IP=192.168.100.201' >> .env
+   ```
+2. Actualiza: `./actualizar.sh` (reinicia el nodo de Tailscale unos segundos).
+3. Abre la app, reproduce algo, abre el reproductor y toca **Onkyo → Enviar lo que suena al Onkyo**.
+
+Cómo funciona: la app le dice al Onkyo "baja esta canción de este enlace" y el Onkyo la pide a tu servidor por el puerto 8099 (solo red de casa). Cada enlace es temporal (30 min) y firmado: sirve para **una** canción y nada más. Las cámaras (puerto 443) no se tocan.
+
+Si no suena: `docker compose logs --tail=80 app | grep -i onkyo`. Si el Onkyo no pide la canción y tienes `ufw` activo: `sudo ufw allow from 192.168.100.10 to any port 8099 proto tcp`.
+
 ## Si algo falla
 
 | Síntoma | Qué mirar |

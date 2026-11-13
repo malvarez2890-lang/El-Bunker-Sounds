@@ -38,6 +38,25 @@ export function loadConfig(overrides = {}) {
       authUrl: e.GOOGLE_AUTH_URL || 'https://accounts.google.com/o/oauth2/v2/auth',
       tokenUrl: e.GOOGLE_TOKEN_URL || 'https://oauth2.googleapis.com/token',
     },
+    // Receptor Onkyo (opcional). Se activa solo si están ONKYO_IP y ONKYO_LAN_IP.
+    onkyo: {
+      ip: e.ONKYO_IP || '',
+      lanIp: e.ONKYO_LAN_IP || '',                 // IP de ESTE servidor en la red de la casa (la que el Onkyo puede alcanzar)
+      lanPort: Number(e.ONKYO_LAN_PORT || 8099),
+      lanHost: e.ONKYO_LAN_HOST || '0.0.0.0',
+      eiscpPort: Number(e.ONKYO_EISCP_PORT || 60128),
+      upnpPort: Number(e.ONKYO_UPNP_PORT || 8888),
+      descPath: e.ONKYO_DESC_PATH || '/upnp_descriptor_0',
+      format: /^wav$/i.test(e.ONKYO_FORMAT || '') ? 'wav' : 'm4a',
+      maxVolume: Math.min(80, Math.max(1, Number(e.ONKYO_MAX_VOLUME || 50))), // tope de seguridad (el TX-8130 llega a 80)
+      secret: e.ONKYO_SECRET || '',
+      linkTtlSec: Number(e.ONKYO_LINK_TTL || 1800),
+      endSlackSec: Number(e.ONKYO_END_SLACK || 6),   // si se detiene a menos de estos segundos del final, se considera que terminó
+      pollMs: Number(e.ONKYO_POLL_MS || 2000),
+      retryMs: Number(e.ONKYO_RETRY_MS || 1500),
+      bootWaitMs: Number(e.ONKYO_BOOT_WAIT_MS || 1500),
+      inputWaitMs: Number(e.ONKYO_INPUT_WAIT_MS || 2500),
+    },
     logLevel: e.LOG_LEVEL || 'info',
   };
 }

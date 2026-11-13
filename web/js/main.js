@@ -4,6 +4,7 @@ import { createRouter, bump, TABS } from './router.js';
 import { openSheet, promptText, toast, errorState, go } from './ui.js';
 import * as player from './player.js';
 import { mountMini } from './playerui.js';
+import { setOnkyoAvailable } from './onkyoui.js';
 import { renderGate, renderPending, renderBlocked } from './views/gate.js';
 import home from './views/home.js';
 import { explore, lista } from './views/explore.js';
@@ -56,6 +57,7 @@ async function boot() {
   if (!me) { renderGate(app, { onDone: boot }); return; }
   if (me.status === 'pending') { renderPending(app, me, { onRefresh: boot, onLogout: logout }); return; }
   if (me.status !== 'active') { renderBlocked(app, { onLogout: logout }); return; }
+  setOnkyoAvailable(me.onkyo);
   renderShell(me);
 }
 

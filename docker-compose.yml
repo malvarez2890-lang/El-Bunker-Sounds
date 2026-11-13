@@ -15,6 +15,10 @@ services:
     volumes:
       - ts-state:/var/lib/tailscale
       - ./deploy/tailscale-serve.json:/config/serve.json:ro
+    # Solo para "Enviar al Onkyo": el Onkyo baja las canciones de este puerto, con enlaces temporales firmados.
+    # Sin ONKYO_LAN_IP en .env queda cerrado a tu red (solo 127.0.0.1) y no sirve nada.
+    ports:
+      - "${ONKYO_LAN_IP:-127.0.0.1}:${ONKYO_LAN_PORT:-8099}:${ONKYO_LAN_PORT:-8099}"
     restart: unless-stopped
     mem_limit: 128m
 

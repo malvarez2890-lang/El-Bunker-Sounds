@@ -50,7 +50,9 @@ export default async function authRoutes(app, { auth, config }) {
   });
 
   // Sin sesión responde user:null (200) para que el navegador no muestre errores rojos en la consola.
-  app.get('/api/me', async (req) => ({ user: req.user ? auth.publicUser(req.user) : null }));
+  app.get('/api/me', async (req) => ({
+    user: req.user ? { ...auth.publicUser(req.user), onkyo: !!(req.user.is_admin && req.user.status === 'active' && config.onkyo.ip && config.onkyo.lanIp) } : null,
+  }));
 
   app.patch('/api/me', async (req, reply) => {
     if (!auth.needUser(req, reply)) return;

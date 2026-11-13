@@ -14,6 +14,8 @@ import { scanLibrary } from './scanner.js';
 import authRoutes from './routes/auth.js';
 import apiRoutes from './routes/api.js';
 import adminRoutes from './routes/admin.js';
+import onkyoRoutes from './routes/onkyo.js';
+import { createOnkyo } from './onkyo.js';
 
 const webDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'web');
 
@@ -30,6 +32,8 @@ export async function buildApp(config, { logger = true } = {}) {
   const lib = createLibraryQueries(db);
   const transcoder = createTranscoder({ db, config, log });
   const covers = createCovers({ config });
+  const onkyo = createOnkyo({ config, db, lib, log });
+  app.addHook('onClose', async () => onkyo.close());
 
   // Escaneo de la biblioteca (uno a la vez), luego convierte lo nuevo.
   let scanning = null;
@@ -57,7 +61,7 @@ export async function buildApp(config, { logger = true } = {}) {
   };
 
   app.decorate('db', db);
-  app.decorate('ctx', { config, db, auth, lib, library, transcoder, covers, mailer });
+  app.decorate('ctx', { config, db, auth, lib, library, transcoder, covers, mailer, onkyo });
 
   await app.register(cookie);
   await app.register(rateLimit, { global: true, max: 1200, timeWindow: '1 minute' });
@@ -94,6 +98,7 @@ export async function buildApp(config, { logger = true } = {}) {
   await app.register(authRoutes, { auth, config });
   await app.register(apiRoutes, { auth, config, lib, db, covers });
   await app.register(adminRoutes, { auth, db, library, transcoder, config });
+  await app.register(onkyoRoutes, { auth, onkyo });
 
   // Archivos de la app (HTML, JS, CSS, fuentes e iconos): son públicos; la música no.
   await app.register(fastifyStatic, {

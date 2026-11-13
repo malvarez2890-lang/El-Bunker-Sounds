@@ -3,6 +3,7 @@ import { h, icon, fmtTime, clear } from './dom.js';
 import * as player from './player.js';
 import { cover, toggleFav, go, openSheet, toast, overlayRoot } from './ui.js';
 import { pointerGesture, glide } from './gestures.js';
+import { onkyoAvailable, openOnkyo } from './onkyoui.js';
 
 let miniEl = null;
 
@@ -117,7 +118,8 @@ export function openPlayer() {
         h('button', { class: 'icon-btn', 'aria-label': 'Siguiente', onclick: () => player.next() }, icon('next')), els.repeat),
       h('div', { class: 'bottom' },
         h('button', { class: 'chip', onclick: openQueue }, icon('queue'), 'En cola'),
-        h('a', { class: 'chip', href: `#/album/${t.albumId}`, style: { 'margin-left': '10px' }, onclick: close }, icon('disc'), 'Ver álbum')));
+        h('a', { class: 'chip', href: `#/album/${t.albumId}`, onclick: close }, icon('disc'), 'Ver álbum'),
+        onkyoAvailable() ? h('button', { class: 'chip', onclick: openOnkyo }, icon('speaker'), 'Onkyo') : null));
     if (enterFrom) { // la carátula nueva entra deslizando desde el lado contrario
       const art = inner.querySelector('.art .cover');
       art.animate([{ transform: `translate3d(${enterFrom * 60}%,0,0)`, opacity: 0 }, { transform: 'translate3d(0,0,0)', opacity: 1 }], { duration: 260, easing: 'cubic-bezier(.22,.8,.24,1)' });

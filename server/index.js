@@ -12,6 +12,7 @@ if (config.baseUrl.startsWith('http://localhost') === false && !config.secureCoo
 if (!config.adminEmails.length) app.log.warn('ADMIN_EMAILS está vacío: nadie podrá aprobar usuarios.');
 
 await app.listen({ port: config.port, host: config.host });
+if (ctx.onkyo.enabled) app.log.info({ puerto: await ctx.onkyo.listen() }, 'Onkyo: servidor de canciones listo (solo red local)');
 
 // Primer escaneo al arrancar y luego cada cierto tiempo (solo recorre archivos, es liviano).
 ctx.library.scan();

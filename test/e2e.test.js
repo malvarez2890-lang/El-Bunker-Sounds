@@ -9,6 +9,7 @@ import { execSync } from 'node:child_process';
 import { loadConfig } from '../server/config.js';
 import { buildApp } from '../server/app.js';
 import { testMusicDir } from './helpers.js';
+import { startFakeOnkyo } from './fake-onkyo.js';
 
 function loadPlaywright() {
   const candidates = [import.meta.url, path.join(execSync('npm root -g').toString().trim(), 'x.js')];
@@ -19,24 +20,29 @@ const pw = loadPlaywright();
 const SHOTS = path.resolve('test-output');
 fs.mkdirSync(SHOTS, { recursive: true });
 
-let server, base, dataDir, browser;
+let server, base, dataDir, browser, fakeOnkyo;
 const errors = [];
 
 before(async () => {
   if (!pw) return;
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ebs-e2e-'));
+  fakeOnkyo = await startFakeOnkyo({ playMs: 60000 });
   const config = loadConfig({
     MUSIC_DIR: testMusicDir('8'), DATA_DIR: dataDir, BASE_URL: 'http://127.0.0.1:3917', PORT: '3917', HOST: '127.0.0.1',
     ADMIN_EMAILS: 'admin@test.cl', MAIL_MODE: 'file', SCAN_INTERVAL_MIN: '0',
+    ONKYO_IP: '127.0.0.1', ONKYO_LAN_IP: '127.0.0.1', ONKYO_LAN_PORT: '39199', ONKYO_LAN_HOST: '127.0.0.1',
+    ONKYO_EISCP_PORT: String(fakeOnkyo.eiscpPort), ONKYO_UPNP_PORT: String(fakeOnkyo.upnpPort),
+    ONKYO_POLL_MS: '300', ONKYO_BOOT_WAIT_MS: '100', ONKYO_INPUT_WAIT_MS: '50',
   });
   server = await buildApp(config, { logger: false });
   await server.ctx.library.scan();
   await server.ctx.transcoder.whenIdle();
   await server.app.listen({ port: 3917, host: '127.0.0.1' });
+  await server.ctx.onkyo.listen();
   base = 'http://127.0.0.1:3917';
   browser = await pw.chromium.launch();
 });
-after(async () => { await browser?.close(); await server?.app.close(); });
+after(async () => { await browser?.close(); await server?.app.close(); fakeOnkyo?.close(); });
 
 const codeFor = (email) => {
   const dir = path.join(dataDir, 'outbox');
@@ -95,6 +101,7 @@ async function login(page, email) {
 }
 
 let admin, friend;
+const until = async (fn, ms = 5000) => { const end = Date.now() + ms; while (!(await fn())) { if (Date.now() > end) throw new Error('tiempo agotado'); await new Promise((r) => setTimeout(r, 50)); } };
 
 test('pantalla de bienvenida y acceso', { skip: !pw }, async () => {
   admin = await newPage('admin');
@@ -645,6 +652,42 @@ test('amigo nuevo: queda pendiente y el admin lo aprueba desde la app', { skip: 
   await page.getByText('fue bloqueado').waitFor();
   await friend.page.goto(base);
   await friend.page.getByRole('heading', { name: 'Entrar' }).or(friend.page.getByRole('button', { name: 'Comenzar' })).waitFor();
+});
+
+test('Onkyo: el administrador lo ve, envía la cola, controla y el amigo no tiene botón', { skip: !pw }, async () => {
+  const { page } = admin;
+  await page.goto(`${base}/#/`); await settled(page);
+  await page.locator('.mini .main').click();
+  await page.locator('.player').waitFor();
+  await page.waitForTimeout(450);
+  await page.locator('.player').getByRole('button', { name: 'Onkyo' }).click();
+  await page.locator('.sheet h3', { hasText: 'Onkyo TX-8130' }).waitFor();
+  await page.locator('.onk-status', { hasText: 'Apagado' }).waitFor();
+  await page.waitForTimeout(450);
+  await shot(page, '60-onkyo-apagado');
+  await page.getByRole('button', { name: 'Enviar lo que suena al Onkyo' }).click();
+  await page.locator('.onk-now .t').waitFor();
+  await page.locator('.onk-status', { hasText: 'Sonando' }).waitFor();
+  assert.equal(fakeOnkyo.dev.power, true);
+  assert.equal(fakeOnkyo.dev.input, '2B');
+  assert.equal(fakeOnkyo.av.fetched.length >= 1 && fakeOnkyo.av.fetched[0].status, 206);
+  assert.equal(await page.evaluate(() => !window.__a() || window.__a().paused), true, 'el teléfono se calla');
+  await page.waitForTimeout(450);
+  await shot(page, '61-onkyo-sonando');
+  // volumen (con tope), pausa y siguiente
+  await page.locator('.onk-vol .range').evaluate((el) => { el.value = 30; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); });
+  await page.waitForFunction(() => document.querySelector('.onk-vol-n')?.textContent === '30');
+  await until(() => fakeOnkyo.dev.volume === 30);
+  const first = await page.locator('.onk-now .t').innerText();
+  await page.locator('.sheet').getByRole('button', { name: 'Pausar' }).click();
+  await page.locator('.onk-status', { hasText: 'En pausa' }).waitFor();
+  await page.locator('.sheet').getByRole('button', { name: 'Siguiente' }).click();
+  await page.waitForFunction((t) => document.querySelector('.onk-now .t')?.textContent !== t, first);
+  await page.getByRole('button', { name: 'Apagar el Onkyo' }).click();
+  await page.locator('.onk-status', { hasText: 'Apagado' }).waitFor();
+  assert.equal(fakeOnkyo.dev.power, false);
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
 });
 
 test('perfil y cierre de sesión', { skip: !pw }, async () => {
