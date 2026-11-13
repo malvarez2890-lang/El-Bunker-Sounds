@@ -86,16 +86,89 @@ def describe(url):
     services = [s.findtext('d:serviceType', default='', namespaces=ns) for s in root.iter('{urn:schemas-upnp-org:device-1-0}service')]
     return {'name': g('friendlyName'), 'maker': g('manufacturer'), 'model': g('modelName'), 'type': g('deviceType'), 'services': services}
 
+def _frame(cmd):
+    data = ('!1' + cmd + '\r').encode()
+    return b'ISCP' + struct.pack('>I', 16) + struct.pack('>I', len(data)) + b'\x01\x00\x00\x00' + data
+
+def _frames(buf):
+    out = []
+    while len(buf) >= 16 and buf[:4] == b'ISCP':
+        hs, ds = struct.unpack('>II', buf[4:12])
+        if len(buf) < hs + ds:
+            break
+        out.append(buf[hs:hs + ds].decode('utf-8', 'replace'))
+        buf = buf[hs + ds:]
+    return out
+
+def eiscp_ask(ip, cmds, port=60128, wait=1.2):
+    """Hace preguntas de SOLO LECTURA (…QSTN) y devuelve las respuestas. Una conexión nueva por pregunta (más confiable)."""
+    got = []
+    for cmd in cmds:
+        try:
+            with socket.create_connection((ip, port), timeout=3) as c:
+                c.sendall(_frame(cmd))
+                c.settimeout(0.3)
+                buf, end = b'', time.time() + wait
+                while time.time() < end:
+                    try:
+                        chunk = c.recv(65536)
+                    except socket.timeout:
+                        continue
+                    if not chunk:
+                        break
+                    buf += chunk
+            got += _frames(buf)
+        except OSError:
+            continue
+    return got
+
 def eiscp_query(ip, port=60128):
-    """Pregunta "¿estás encendido?" (!1PWRQSTN). Es solo una consulta."""
-    data = b'!1PWRQSTN\r'
-    packet = b'ISCP' + struct.pack('>I', 16) + struct.pack('>I', len(data)) + b'\x01\x00\x00\x00' + data
-    with socket.create_connection((ip, port), timeout=3) as c:
-        c.sendall(packet)
-        c.settimeout(3)
-        buf = c.recv(4096)
-    m = re.search(rb'!1PWR(\w\w)', buf)
-    return m.group(1).decode() if m else None
+    """Pregunta "¿estás encendido?". Es solo una consulta."""
+    for r in eiscp_ask(ip, ['PWRQSTN'], port, wait=1.0):
+        m = re.search(r'!1PWR(\w\w)', r)
+        if m:
+            return m.group(1)
+    return None
+
+def ficha_onkyo(ip):
+    """Modelo, versión, entrada y volumen actuales, y servicios de red que declara el equipo (solo lectura)."""
+    print(f'\nFicha del equipo en {ip} (solo preguntas, no cambia nada):')
+    try:
+        res = eiscp_ask(ip, ['SLIQSTN', 'MVLQSTN', 'NRIQSTN'])
+    except Exception as e:
+        print('  (no pude leerla:', e, ')')
+        return
+    for r in res:
+        m = re.search(r'!1SLI(\w\w)', r)
+        if m: print(f'  Entrada actual (código): {m.group(1)}   (2B = red/NET)')
+        m = re.search(r'!1MVL(\w\w)', r)
+        if m: print(f'  Volumen actual (hex): {m.group(1)}')
+        if 'NRI' in r:
+            for tag, label in (('model', 'Modelo'), ('firmwareversion', 'Versión'), ('macaddress', 'MAC')):
+                m = re.search(rf'<{tag}>([^<]*)</{tag}>', r)
+                if m: print(f'  {label}: {m.group(1)}')
+            svcs = re.findall(r'<netservice [^>]*name="([^"]*)"', r)
+            if svcs: print('  Servicios de red:', ', '.join(svcs))
+
+def ssdp_directo(ip, timeout=3.0):
+    """Pregunta por UPnP/DLNA DIRECTAMENTE a la IP del equipo (funciona aunque el router no deje pasar la búsqueda general)."""
+    found = {}
+    for st in ('ssdp:all', 'urn:schemas-upnp-org:device:MediaRenderer:1', 'urn:schemas-upnp-org:service:AVTransport:1'):
+        msg = (f'M-SEARCH * HTTP/1.1\r\nHOST: {ip}:1900\r\nMAN: "ssdp:discover"\r\nMX: 2\r\nST: {st}\r\n\r\n').encode()
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(0.5)
+        s.sendto(msg, (ip, 1900))
+        end = time.time() + timeout / 3
+        while time.time() < end:
+            try:
+                data, addr = s.recvfrom(65507)
+            except (socket.timeout, OSError):
+                continue
+            loc = re.search(r'(?im)^location:\s*(\S+)', data.decode('utf-8', 'replace'))
+            if loc:
+                found.setdefault(loc.group(1), addr[0])
+        s.close()
+    return found
 
 def main():
     args = [a for a in sys.argv[1:]]
@@ -150,6 +223,21 @@ def main():
         except Exception as e:
             print('  ❌ No respondió:', e)
             print('     (En el equipo: Setup → Hardware → Network → "Network Standby" debe estar en On para poder encenderlo por red.)')
+            return
+        ficha_onkyo(ip)
+        print(f'\nPreguntando por DLNA/UPnP directamente a {ip} …')
+        directo = ssdp_directo(ip)
+        if not directo:
+            print('  El equipo no contestó por DLNA/UPnP. Puede que no acepte recibir canciones por ese camino (o que haya que activarlo en su menú de red).')
+        for loc, addr in directo.items():
+            d = describe(loc)
+            if not d:
+                print(f'  • {addr}: contestó, pero no pude leer su descripción ({loc})')
+                continue
+            puede = any('AVTransport' in x for x in d['services'])
+            print(f"  • {d['name'] or '(sin nombre)'}  {d['maker']} {d['model']}  tipo: {d['type'].split(':')[-2] if ':' in d['type'] else d['type']}")
+            print('    ' + ('✅ PUEDE RECIBIR MÚSICA (AVTransport): se le puede mandar una canción' if puede else '- no ofrece recibir música; sí puede mostrar su biblioteca' if any('ContentDirectory' in x for x in d['services']) else '- sin funciones de música'))
+            print('    servicios:', ', '.join(sorted({x.split(':')[-2] for x in d['services'] if ':' in x})))
 
 if __name__ == '__main__':
     main()
