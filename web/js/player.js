@@ -3,9 +3,13 @@ import { get, post, coverUrl, streamUrl } from './api.js';
 
 // El audio se descarga COMPLETO a la memoria del teléfono antes de sonar (y la canción siguiente se prepara mientras suena la actual).
 // Así saltar a otro minuto, retomar donde ibas y pasar a la siguiente funcionan igual en cualquier teléfono, sin depender de la red.
-const audio = new Audio();
-audio.preload = 'auto';
-audio.setAttribute('playsinline', '');
+// Dos reproductores ("mazos"): mientras uno suena, el otro ya tiene cargada la canción siguiente. Cerca del final, la siguiente
+// arranca SIN esperar a que termine la actual: con el teléfono bloqueado iOS congela la app justo cuando el audio se detiene, y la
+// orden de "pasar a la siguiente" se quedaba esperando hasta desbloquear.
+const mkAudio = (name) => { const a = new Audio(); a.preload = 'auto'; a.setAttribute('playsinline', ''); a.dataset.deck = name; return a; };
+const decks = [mkAudio('A'), mkAudio('B')];
+let audio = decks[0];  // el que suena (o sonaría)
+let spare = decks[1];  // el que tiene lista la siguiente
 
 const subs = { change: new Set(), time: new Set(), error: new Set(), blocked: new Set() };
 const emit = (type, arg) => subs[type].forEach((fn) => fn(arg));
@@ -38,13 +42,15 @@ export const duration = () => (isLoaded() && Number.isFinite(audio.duration) && 
 
 // ---------- registro para diagnóstico (pantalla "Diagnóstico del audio") ----------
 const logs = [];
-function log(e, extra = '') {
-  const seek = audio.seekable?.length ? `${audio.seekable.start(0).toFixed(1)}-${audio.seekable.end(audio.seekable.length - 1).toFixed(1)}` : '-';
-  logs.push(`${new Date().toLocaleTimeString('es')} ${e} t=${(audio.currentTime || 0).toFixed(1)} rs=${audio.readyState} ns=${audio.networkState} seek=${seek}${extra ? ' ' + extra : ''}`);
+function log(e, extra = '', el = audio) {
+  const seek = el.seekable?.length ? `${el.seekable.start(0).toFixed(1)}-${el.seekable.end(el.seekable.length - 1).toFixed(1)}` : '-';
+  logs.push(`${new Date().toLocaleTimeString('es')} [${el.dataset.deck}${el === audio ? '*' : ''}] ${e} t=${(el.currentTime || 0).toFixed(1)} rs=${el.readyState} ns=${el.networkState} seek=${seek}${extra ? ' ' + extra : ''}`);
   if (logs.length > 80) logs.shift();
 }
-for (const ev of ['loadstart', 'loadedmetadata', 'canplay', 'playing', 'pause', 'ended', 'error', 'stalled', 'waiting', 'seeking', 'seeked', 'emptied', 'abort']) {
-  audio.addEventListener(ev, () => log(ev, ev === 'error' ? `code=${audio.error?.code}` : ''));
+for (const el of decks) {
+  for (const ev of ['loadedmetadata', 'canplay', 'playing', 'pause', 'ended', 'error', 'stalled', 'waiting', 'seeking', 'seeked', 'emptied', 'abort']) {
+    el.addEventListener(ev, () => log(ev, ev === 'error' ? `code=${el.error?.code}` : '', el));
+  }
 }
 export function debugInfo() {
   return {
@@ -54,6 +60,7 @@ export function debugInfo() {
       networkState: audio.networkState, source: isSilent() ? 'silencio' : audio.src.startsWith('blob:') ? 'memoria (blob)' : audio.src ? 'red' : 'ninguna',
       seekable: audio.seekable?.length ? `${audio.seekable.start(0).toFixed(1)} a ${audio.seekable.end(audio.seekable.length - 1).toFixed(1)}` : 'nada',
     },
+    spare: { id: spareId, paused: spare.paused, source: spare.src.startsWith('blob:') ? 'blob' : spare.src ? 'otro' : 'ninguna' },
     cache: [...cache.entries()].map(([id, e]) => `${id}${e.url ? ' listo' : ' bajando'}`),
     queue: `${st.index + 1}/${st.queue.length}`, loadedId, state: { ...st, queue: undefined, original: undefined },
   };
@@ -88,23 +95,84 @@ function prefetch(index) {
   const prev = q[index - 1];
   trim(new Set([q[index]?.id, next?.id, prev?.id].filter((x) => x != null)));
   if (next) entryFor(next).promise.catch(() => {});
+  refreshSpare();
 }
 
 // ---------- desbloqueo del audio (iPhone solo deja sonar si el primer play viene de un toque) ----------
 const SILENT = '/silence.wav'; // medio segundo de silencio, propio de la app (el CSP no deja usar data: en audio)
-const isSilent = () => audio.src.endsWith('/silence.wav');
+const isSilentEl = (el) => el.src.endsWith('/silence.wav');
+const isSilent = () => isSilentEl(audio);
 let unlocked = false;
 function unlock() {
   if (unlocked) return;
   if (audio.src && !isSilent()) { unlocked = true; return; } // ya hay una canción cargada: el reproductor ya está habilitado
   unlocked = true;
-  try {
-    audio.src = SILENT;
-    const p = audio.play();
-    // Si otra canción se carga enseguida, este play se interrumpe (AbortError): es normal y NO significa que falló.
-    if (p?.catch) p.catch((err) => { if (err?.name === 'NotAllowedError') unlocked = false; });
-    log('desbloqueo');
-  } catch { unlocked = false; }
+  for (const el of decks) {
+    try {
+      if (el.src && !isSilentEl(el)) continue;
+      el.src = SILENT;
+      const p = el.play();
+      // Si otra canción se carga enseguida, este play se interrumpe (AbortError): es normal y NO significa que falló.
+      if (p?.catch) p.catch((err) => { if (err?.name === 'NotAllowedError') unlocked = false; });
+    } catch { unlocked = false; }
+  }
+  log('desbloqueo');
+}
+
+// ---------- traspaso anticipado a la siguiente canción ----------
+let spareId = null;
+let spareToken = 0;
+const nextIndexForHandoff = () => {
+  if (st.repeat === 'one') return -1;
+  const i = st.index + 1;
+  return i < st.queue.length ? i : (st.repeat === 'all' && st.queue.length > 1 ? 0 : -1);
+};
+/** Deja lista, en el reproductor libre, la canción que viene. */
+function refreshSpare() {
+  const ni = nextIndexForHandoff();
+  const nt = ni >= 0 ? st.queue[ni] : null;
+  if (!nt) { spareId = null; return; }
+  if (spareId === nt.id) return;
+  if (!spare.paused && !spare.ended && !isSilentEl(spare)) return; // todavía suena el final de la anterior: se reintenta luego
+  const my = ++spareToken;
+  spareId = null;
+  entryFor(nt).promise.then((url) => {
+    if (my !== spareToken) return;
+    if (!spare.paused && !isSilentEl(spare)) return;
+    spare.src = url;
+    spare.load();
+    spareId = nt.id;
+    log('siguiente lista', `id=${nt.id}`, spare);
+  }).catch(() => {});
+}
+let handingOff = false;
+function maybeHandoff() {
+  if (handingOff || spareId == null || isSilent() || audio.paused) return;
+  const d = audio.duration;
+  if (!(d > 0) || d - audio.currentTime > 0.5) return;
+  const ni = nextIndexForHandoff();
+  const nt = ni >= 0 ? st.queue[ni] : null;
+  if (!nt || nt.id !== spareId) return;
+  const target = spare;
+  handingOff = true;
+  try { target.currentTime = 0; } catch { /* ya está al principio */ }
+  const commit = () => {
+    handingOff = false;
+    if (target !== spare || spareId !== nt.id) { target.pause(); return; } // la cola cambió mientras tanto
+    const old = audio;
+    audio = target; spare = old;
+    spareId = null; spareToken++;
+    st.index = ni; loadedId = nt.id; pendingSeek = null; restorePos = 0; st.loading = false; st.wantPlay = true;
+    countedPlayFor = nt.id; post('/api/plays', { trackId: nt.id }).catch(() => {});
+    log('traspaso', `a id=${nt.id}`);
+    updateMediaSession();
+    syncPlaying();
+    prefetch(ni);
+  };
+  // Solo se hace el cambio si el segundo reproductor realmente arrancó; si el teléfono lo rechaza, sigue el camino normal (al terminar).
+  const p = target.play();
+  if (p?.then) p.then(commit, (err) => { handingOff = false; log('traspaso rechazado', err?.name); });
+  else commit();
 }
 
 function startPlayback() {
@@ -133,6 +201,7 @@ function load(index, { autoplay = true, startAt = 0 } = {}) {
     if (my !== loadToken) return;
     st.loading = false;
     loadedId = t.id;
+    spareId = spareId === t.id ? null : spareId; // la lista previa puede ya no corresponder
     audio.src = url;
     log('cargada', `id=${t.id}`);
     if (st.wantPlay) startPlayback();
@@ -281,42 +350,54 @@ export function setFav(trackId, fav) {
   emit('change', st);
 }
 
-// ---------- eventos del audio ----------
+// ---------- eventos del audio (solo importan los del reproductor activo) ----------
 const syncPlaying = () => {
   st.playing = !audio.paused && !isSilent();
   if ('mediaSession' in navigator) navigator.mediaSession.playbackState = st.playing ? 'playing' : (current() ? 'paused' : 'none');
   changed();
 };
-audio.addEventListener('play', () => { if (!isSilent()) syncPlaying(); });
-audio.addEventListener('pause', () => { if (!isSilent() && !audio.ended) syncPlaying(); });
-audio.addEventListener('ended', () => { if (!isSilent() && audio.ended) next({ auto: true }); }); // si el evento es viejo (otra canción ya cargada) se ignora
-audio.addEventListener('loadedmetadata', () => {
-  if (isSilent()) return;
-  if (pendingSeek != null) { audio.currentTime = Math.min(pendingSeek, (audio.duration || pendingSeek) - 0.1); pendingSeek = null; }
-  updatePositionState();
-  emit('time');
-});
-audio.addEventListener('playing', () => {
-  if (isSilent()) return;
-  errorStreak = 0;
-  const t = current();
-  if (t && countedPlayFor !== t.id) { countedPlayFor = t.id; post('/api/plays', { trackId: t.id }).catch(() => {}); }
-});
 let lastTick = 0;
-audio.addEventListener('timeupdate', () => {
-  if (isSilent()) return;
-  emit('time');
-  const now = Date.now();
-  if (now - lastTick > 1000) { lastTick = now; updatePositionState(); }
-  if (now - lastSave > 5000) saveSoon(true);
-});
-audio.addEventListener('error', () => {
-  if (isSilent() || !current()) return;
-  errorStreak++;
-  emit('error', current());
-  if (errorStreak < 3 && st.index < st.queue.length - 1) setTimeout(() => next({ auto: true }), 600);
-  else { st.playing = false; changed(); }
-});
+function wire(el) {
+  const active = () => el === audio;
+  el.addEventListener('play', () => { if (active() && !isSilent()) syncPlaying(); });
+  el.addEventListener('pause', () => {
+    if (!active()) { refreshSpare(); return; } // el reproductor anterior terminó de sonar: se prepara la siguiente
+    if (!isSilent() && !el.ended) syncPlaying();
+  });
+  el.addEventListener('ended', () => {
+    if (!active()) { refreshSpare(); return; }  // terminó el final de la canción anterior: se prepara la siguiente
+    if (!isSilent() && el.ended) next({ auto: true }); // si el evento es viejo (otra canción ya cargada) se ignora
+  });
+  el.addEventListener('loadedmetadata', () => {
+    if (!active() || isSilent()) return;
+    if (pendingSeek != null) { el.currentTime = Math.min(pendingSeek, (el.duration || pendingSeek) - 0.1); pendingSeek = null; }
+    updatePositionState();
+    emit('time');
+  });
+  el.addEventListener('playing', () => {
+    if (!active() || isSilent()) return;
+    errorStreak = 0;
+    const t = current();
+    if (t && countedPlayFor !== t.id) { countedPlayFor = t.id; post('/api/plays', { trackId: t.id }).catch(() => {}); }
+  });
+  el.addEventListener('timeupdate', () => {
+    if (!active() || isSilent()) return;
+    emit('time');
+    if (spareId == null) refreshSpare();
+    maybeHandoff();
+    const now = Date.now();
+    if (now - lastTick > 1000) { lastTick = now; updatePositionState(); }
+    if (now - lastSave > 5000) saveSoon(true);
+  });
+  el.addEventListener('error', () => {
+    if (!active() || isSilent() || !current()) return;
+    errorStreak++;
+    emit('error', current());
+    if (errorStreak < 3 && st.index < st.queue.length - 1) setTimeout(() => next({ auto: true }), 600);
+    else { st.playing = false; changed(); }
+  });
+}
+decks.forEach(wire);
 
 // ---------- pantalla bloqueada / controles del celular ----------
 function updateMediaSession() {
@@ -394,10 +475,8 @@ export async function restore() {
 }
 
 export function reset() {
-  loadToken++;
-  audio.pause();
-  audio.removeAttribute('src');
-  audio.load();
+  loadToken++; spareToken++; spareId = null;
+  for (const el of decks) { el.pause(); el.removeAttribute('src'); el.load(); }
   trim(new Set());
   loadedId = null; restorePos = 0; pendingSeek = null; unlocked = false;
   st.queue = []; st.original = []; st.index = -1; st.playing = false; st.loading = false; st.wantPlay = false;

@@ -12,6 +12,7 @@ export async function diagnostico() {
       `Navegador: ${navigator.userAgent}`,
       '',
       `Audio: ${JSON.stringify(d.audio, null, 1)}`,
+      `Siguiente lista en el 2º reproductor: ${JSON.stringify(d.spare)}`,
       `Cola: ${d.queue}  cargada: ${d.loadedId}`,
       `Descargas en memoria: ${d.cache.join(', ') || 'ninguna'}`,
       `Estado: ${JSON.stringify(d.state)}`,

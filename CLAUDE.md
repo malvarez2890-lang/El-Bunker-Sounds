@@ -55,6 +55,8 @@ App web (PWA) para escuchar la música casera del dueño y compartirla con ~10 a
 - Confirmado con capturas del dueño: en la pantalla de bloqueo se ven carátula, título, artista, barra y botones. Tocar la tarjeta abre **otra** web app ("Numa", de otro dominio) = error conocido de iOS 26 (Apple FB25262874, sin solución web; ver foro de Apple 852546). NO es del código ni del dominio. **Confirmado por el dueño:** al quitar el ícono de Numa (PWA en workers.dev) la tarjeta ya abre El Búnker Sound. Mientras haya otra web app instalada puede abrirse la equivocada; no es del código. Si un amigo tiene otras PWAs instaladas puede pasarle lo mismo (aviso en la guía de uso).
 - iOS muestra "±10 s" en la tarjeta si se registran `seekbackward/seekforward`; por eso NO se registran (así aparecen anterior/siguiente).
 
+- Pantalla bloqueada: la canción sonaba pero NO pasaba a la siguiente hasta desbloquear (iOS congela la app justo cuando el audio termina, y el evento `ended` llegaba tarde). Arreglo: **dos reproductores (A/B)** en `player.js`; el libre tiene cargada la siguiente y arranca ~0,5 s antes del final (`maybeHandoff`, solo cambia de rol si `play()` tuvo éxito; si falla queda el camino normal por `ended`). Probado en Chromium suprimiendo `ended` (test e2e). **Sin verificar en iPhone**; si falla, mirar `#/diagnostico` (líneas `traspaso` / `traspaso rechazado`).
+
 ## Pendiente / ideas para después
 - Probar en iPhone real y ajustar (sesión PWA vs Safari, Media Session, `ended`→siguiente en segundo plano).
 - Endurecer la política de Tailscale (que `tag:musica` no alcance otros equipos) — hacerlo junto al dueño, sin tocar su política a ciegas.

@@ -55,7 +55,15 @@ async function newPage(name) {
   await page.addInitScript(() => {
     window.__audios = [];
     const orig = HTMLMediaElement.prototype.play;
-    HTMLMediaElement.prototype.play = function () { window.__audios.push(this); return orig.call(this); };
+    HTMLMediaElement.prototype.play = function () { if (!window.__audios.includes(this)) window.__audios.push(this); return orig.call(this); };
+    // Permite simular el teléfono bloqueado: el aviso "terminó la canción" no llega (iOS congela la app justo ahí).
+    const addL = EventTarget.prototype.addEventListener;
+    EventTarget.prototype.addEventListener = function (type, cb, opts) {
+      if (type === 'ended' && this instanceof HTMLMediaElement) { const orig2 = cb; cb = function (e) { if (window.__suppressEnded) return; return orig2.call(this, e); }; }
+      return addL.call(this, type, cb, opts);
+    };
+    // El reproductor que suena ahora (hay dos que se turnan).
+    window.__a = () => { const l = window.__audios.filter((a) => a.src.startsWith('blob:')); return l.find((a) => !a.paused) || l.sort((x, y) => y.currentTime - x.currentTime)[0] || window.__audios[0]; };
   });
   return { page, ctx };
 }
@@ -142,7 +150,7 @@ test('álbum: reproducir, mini reproductor, pantalla bloqueada (Media Session)',
   await page.getByRole('button', { name: 'Reproducir', exact: true }).first().click();
   await page.locator('.mini').waitFor();
   // el audio avanza de verdad
-  await page.waitForFunction(() => window.__audios[0] && window.__audios[0].currentTime > 1.2, null, { timeout: 15000 });
+  await page.waitForFunction(() => window.__a() && window.__a().currentTime > 1.2, null, { timeout: 15000 });
   const meta = await page.evaluate(() => ({ t: navigator.mediaSession.metadata.title, a: navigator.mediaSession.metadata.artist, al: navigator.mediaSession.metadata.album, art: navigator.mediaSession.metadata.artwork.length, state: navigator.mediaSession.playbackState }));
   assert.deepEqual({ t: meta.t, a: meta.a, al: meta.al, state: meta.state }, { t: 'Che Livello!', a: 'PIÙ VELOCE', al: 'Musica per te', state: 'playing' });
   assert.equal(meta.art, 3);
@@ -151,9 +159,9 @@ test('álbum: reproducir, mini reproductor, pantalla bloqueada (Media Session)',
   await page.getByRole('button', { name: 'Siguiente' }).first().click();
   await page.waitForFunction(() => navigator.mediaSession.metadata.title === 'Neon');
   await page.getByRole('button', { name: 'Pausar' }).first().click();
-  await page.waitForFunction(() => window.__audios[0].paused && navigator.mediaSession.playbackState === 'paused');
+  await page.waitForFunction(() => window.__a().paused && navigator.mediaSession.playbackState === 'paused');
   await page.getByRole('button', { name: 'Reproducir' }).first().click();
-  await page.waitForFunction(() => !window.__audios[0].paused);
+  await page.waitForFunction(() => !window.__a().paused);
 });
 
 test('reproductor expandido: progreso, favorito, cola, aleatorio, repetir', { skip: !pw }, async () => {
@@ -165,7 +173,7 @@ test('reproductor expandido: progreso, favorito, cola, aleatorio, repetir', { sk
   await shot(page, '10-reproductor');
   // buscar en la canción
   await page.locator('.range').evaluate((el) => { el.value = 500; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); });
-  await page.waitForFunction(() => window.__audios[0].currentTime > 3);
+  await page.waitForFunction(() => window.__a().currentTime > 3);
   // favorito
   await page.getByRole('button', { name: 'Agregar a favoritos' }).click();
   await page.getByRole('button', { name: 'Quitar de favoritos' }).waitFor();
@@ -343,30 +351,36 @@ test('el scroll de una lista no mueve el resto de la app', { skip: !pw }, async 
 test('reproducción: pasa sola a la siguiente, la barra salta de verdad y retoma donde ibas', { skip: !pw }, async () => {
   const { page } = admin;
   await noSplash(page);
+  await page.evaluate(() => { window.__suppressEnded = true; }); // simula el teléfono bloqueado: nunca llega el aviso de "terminó"
   await page.goto(`${base}/#/lista/album`); await settled(page);
   await P(page).locator('.card', { hasText: 'Neon, Fumo' }).click(); await settled(page);
   await P(page).getByRole('button', { name: 'Reproducir', exact: true }).first().click();
   await page.waitForFunction(() => navigator.mediaSession.metadata?.title === 'Luci Accese');
-  await page.waitForFunction(() => window.__audios[0].currentTime > 1 && !window.__audios[0].paused);
+  await page.waitForFunction(() => window.__a().currentTime > 1 && !window.__a().paused);
 
   // 1) la barra de reproducción salta de verdad (al 80% de una canción de 8 s)
   await page.locator('.mini .main').click();
   const pl = page.locator('.player');
   await pl.waitFor();
   await pl.locator('.range').evaluate((el) => { el.value = 800; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); });
-  await page.waitForFunction(() => window.__audios[0].currentTime > 6 && window.__audios[0].currentTime < 7.9);
+  await page.waitForFunction(() => window.__a().currentTime > 6 && window.__a().currentTime < 7.9);
   // 2) al terminar, empieza sola la siguiente (sin tocar nada)
   await page.waitForFunction(() => navigator.mediaSession.metadata?.title === 'Velocità', null, { timeout: 8000 });
-  await page.waitForFunction(() => !window.__audios[0].paused && window.__audios[0].currentTime < 3);
+  await page.waitForFunction(() => !window.__a().paused && window.__a().currentTime < 3);
   assert.equal(await pl.locator('h2').innerText(), 'Velocità');
   // 3) y la que sigue después de esa también
   await pl.locator('.range').evaluate((el) => { el.value = 900; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); });
   await page.waitForFunction(() => navigator.mediaSession.metadata?.title === 'Corpi Elettrici', null, { timeout: 8000 });
   await page.getByRole('button', { name: 'Cerrar reproductor' }).click();
   await page.locator('.player').waitFor({ state: 'detached' });
+  // la pantalla de diagnóstico confirma que la siguiente arrancó ANTES de que terminara la anterior (sin depender del aviso de "terminó")
+  await page.goto(`${base}/#/diagnostico`); await settled(page);
+  assert.match(await P(page).locator('.diag').innerText(), /traspaso .* a id=/);
+  await page.goto(`${base}/#/lista/album`); await settled(page);
 
+  await page.evaluate(() => { window.__suppressEnded = false; });
   // 4) retomar: se guarda la posición al salir y, al volver y apretar play, sigue desde ahí (no desde cero)
-  await page.waitForFunction(() => window.__audios[0].currentTime > 3);
+  await page.waitForFunction(() => window.__a().currentTime > 3);
   await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('ebs_player_v1')));
   assert.ok(saved.pos >= 3, `se guardó la posición (${saved.pos})`);
@@ -377,7 +391,7 @@ test('reproducción: pasa sola a la siguiente, la barra salta de verdad y retoma
   const shownBefore = await page.evaluate(() => getComputedStyle(document.querySelector('.mini')).getPropertyValue('--p'));
   assert.ok(Number(shownBefore) > 0.3, 'la barra muestra el avance guardado');
   await page.locator('#mini-toggle').click();
-  await page.waitForFunction((pos) => window.__audios[0] && !window.__audios[0].paused && window.__audios[0].currentTime >= pos - 0.6, saved.pos, { timeout: 8000 });
+  await page.waitForFunction((pos) => window.__a() && !window.__a().paused && window.__a().currentTime >= pos - 0.6, saved.pos, { timeout: 8000 });
 });
 
 test('diagnóstico del audio: la pantalla muestra el estado y los eventos', { skip: !pw }, async () => {
