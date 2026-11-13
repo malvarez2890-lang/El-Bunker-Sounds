@@ -4,9 +4,12 @@
 #   ONEDRIVE_REMOTE="onedrive:Documents/03. iA/El Bunker Sound"
 set -euo pipefail
 cd "$(dirname "$0")/.."
-set -a; . ./.env; set +a
-: "${ONEDRIVE_REMOTE:?Falta ONEDRIVE_REMOTE en .env}"
-: "${MUSIC_HOST_DIR:?Falta MUSIC_HOST_DIR en .env}"
+# Se leen solo las dos variables necesarias (no se "ejecuta" todo el .env, que tiene líneas con espacios).
+leer() { grep -E "^$1=" .env | tail -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//'; }
+ONEDRIVE_REMOTE="$(leer ONEDRIVE_REMOTE)"
+MUSIC_HOST_DIR="$(leer MUSIC_HOST_DIR)"
+[ -n "$ONEDRIVE_REMOTE" ] || { echo "Falta ONEDRIVE_REMOTE en .env"; exit 1; }
+[ -n "$MUSIC_HOST_DIR" ] || { echo "Falta MUSIC_HOST_DIR en .env"; exit 1; }
 mkdir -p "$MUSIC_HOST_DIR"
 rclone copy "$ONEDRIVE_REMOTE" "$MUSIC_HOST_DIR" --progress --transfers 2 --exclude "desktop.ini" --exclude "Thumbs.db"
 chmod -R a+rX "$MUSIC_HOST_DIR"
