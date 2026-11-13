@@ -47,6 +47,8 @@ export function createRouter({ routes, stage, onTab, ctx }) {
     stage.append(el);
     return { el, route, params, hash, tab, version: -1, token: 0, dead: false };
   }
+  // Una pantalla guardada se refresca si hubo cambios, si pasó más de un minuto o si es de las que siempre deben estar al día (Administración).
+  const stale = (p) => p.version !== version || Date.now() - (p.at || 0) > 60000 || !!p.route.fresh;
   const show = (p) => p.el.classList.remove('off');
   const hide = (p) => { p.el.classList.add('off'); p.el.style.transform = ''; p.el.style.opacity = ''; p.el.classList.remove('shadow'); };
   function destroy(p) {
@@ -66,12 +68,13 @@ export function createRouter({ routes, stage, onTab, ctx }) {
       clear(page.el).append(node);
       page.el.scrollTop = st;
       page.version = v;
+      page.at = Date.now();
     } catch (err) {
       if (page.dead || my !== page.token) return;
       clear(page.el).append(errorState(err, () => fillPage(page)));
     }
   }
-  const revealed = (page) => { if (page.version !== version) fillPage(page, { silent: true }); onTab(page.tab); };
+  const revealed = (page) => { if (stale(page)) fillPage(page, { silent: true }); onTab(page.tab); };
 
   /** Anima un elemento desde donde está hasta "to" y deja el estilo final puesto. */
   function move(el, to) {
@@ -117,7 +120,7 @@ export function createRouter({ routes, stage, onTab, ctx }) {
     const from = top();
     let target = tabPages.get(tab);
     if (!target) { target = makePage(route, params, hash, tab); tabPages.set(tab, target); fillPage(target); }
-    else if (target.version !== version) fillPage(target, { silent: true });
+    else if (stale(target)) fillPage(target, { silent: true });
     target.hash = hash;
     const dir = TABS.indexOf(tab) >= TABS.indexOf(from.tab) ? 1 : -1;
     const W = width();
@@ -174,7 +177,7 @@ export function createRouter({ routes, stage, onTab, ctx }) {
   function neighborPage(tab) {
     let p = tabPages.get(tab);
     if (!p) { p = makePage(rootRoute(tab), [], TAB_HASH[tab], tab); tabPages.set(tab, p); fillPage(p); }
-    else if (p.version !== version) fillPage(p, { silent: true });
+    else if (stale(p)) fillPage(p, { silent: true });
     return p;
   }
 

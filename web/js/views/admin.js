@@ -16,7 +16,10 @@ export async function admin(ctx) {
   const libBox = h('div');
   const root = h('div', null, backBar(), h('h1', { class: 'h1' }, 'Administración'),
     h('div', { class: 'eyebrow', style: { 'margin-bottom': '8px' } }, 'Personas'), usersBox,
-    h('div', { class: 'eyebrow', style: { margin: '28px 0 8px' } }, 'Biblioteca'), libBox);
+    h('div', { class: 'eyebrow', style: { margin: '28px 0 8px' } }, 'Biblioteca'), libBox,
+    h('div', { class: 'eyebrow', style: { margin: '28px 0 8px' } }, 'Herramientas'),
+    h('a', { class: 'libcard', href: '#/diagnostico' }, h('div', { class: 'ico', style: { '--c': '#2c4a3f' } }, icon('wave')),
+      h('div', { class: 'main' }, h('div', { class: 't' }, 'Diagnóstico del audio'), h('div', { class: 'muted small' }, 'Estado del reproductor y últimos eventos')), h('span', { class: 'chev' }, icon('right'))));
 
   async function act(user, body, okText) {
     try { await post(`/api/admin/users/${user.id}`, body); toast(okText); await loadUsers(); ctx.updateBadge?.(); } catch (e) { toast(errorText(e)); }

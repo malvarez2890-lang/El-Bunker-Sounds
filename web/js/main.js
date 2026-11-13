@@ -29,7 +29,7 @@ const ROUTES = [
   { re: /^\/buscar$/, tab: 'buscar', root: true, view: search },
   { re: /^\/album\/(\d+)$/, tab: null, view: album },
   { re: /^\/artista\/(\d+)$/, tab: null, view: artist },
-  { re: /^\/admin$/, tab: null, view: admin },
+  { re: /^\/admin$/, tab: null, fresh: true, view: admin },
   { re: /^\/diagnostico$/, tab: null, view: diagnostico },
 ];
 
@@ -104,7 +104,6 @@ function openProfile(me, avatar) {
           try { await patch('/api/me', { name }); me.name = name; boot(); } catch (e) { toast(errorText(e)); }
         }),
         me.isAdmin ? item('shield', pending ? `Administración (${pending} pendiente${pending === 1 ? '' : 's'})` : 'Administración', () => go('#/admin')) : null,
-        item('wave', 'Diagnóstico del audio', () => go('#/diagnostico')),
         item('logout', 'Cerrar sesión', logout, 'danger')));
   });
 }

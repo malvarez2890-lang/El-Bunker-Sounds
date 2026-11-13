@@ -394,10 +394,18 @@ test('reproducción: pasa sola a la siguiente, la barra salta de verdad y retoma
   await page.waitForFunction((pos) => window.__a() && !window.__a().paused && window.__a().currentTime >= pos - 0.6, saved.pos, { timeout: 8000 });
 });
 
-test('diagnóstico del audio: la pantalla muestra el estado y los eventos', { skip: !pw }, async () => {
+test('diagnóstico del audio: está dentro de Administración y muestra el estado y los eventos', { skip: !pw }, async () => {
   const { page } = admin;
-  await page.goto(`${base}/#/diagnostico`); await settled(page);
+  await page.goto(`${base}/#/admin`); await settled(page);
+  await P(page).getByRole('heading', { name: 'Administración' }).waitFor();
+  await P(page).getByText('Herramientas').waitFor();
+  await P(page).locator('.libcard', { hasText: 'Diagnóstico del audio' }).click(); await settled(page);
   await P(page).getByRole('heading', { name: 'Diagnóstico del audio' }).waitFor();
+  // ya no está en el menú del perfil
+  await page.getByRole('button', { name: 'Tu perfil' }).click();
+  await page.waitForFunction(() => document.querySelector('.sheet .menu-head'));
+  assert.equal(await page.getByText('Diagnóstico del audio').count() > 0 && await page.locator('.sheet').getByText('Diagnóstico').count(), 0);
+  await page.keyboard.press('Escape');
   const txt = await P(page).locator('.diag').innerText();
   assert.match(txt, /memoria \(blob\)/);
   assert.match(txt, /Últimos eventos/);
