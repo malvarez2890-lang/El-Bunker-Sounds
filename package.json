@@ -1,0 +1,26 @@
+{
+  "name": "el-bunker-sound",
+  "version": "0.1.0",
+  "private": true,
+  "description": "El Búnker Sound: música de casa para compartir con amigos",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test --test-concurrency=1 \"test/*.test.js\""
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.1.5",
+    "@fastify/rate-limit": "^11.2.2",
+    "@fastify/static": "^10.1.11",
+    "fastify": "^5.12.8",
+    "nodemailer": "^10.5.0"
+  },
+  "devDependencies": {
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/sora": "^5.3.0"
+  }
+}
