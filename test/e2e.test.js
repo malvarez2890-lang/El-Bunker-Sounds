@@ -671,10 +671,11 @@ test('Onkyo: el administrador lo ve, envía la cola, controla y el amigo no tien
   assert.equal(fakeOnkyo.dev.power, true);
   assert.equal(fakeOnkyo.dev.input, '2B');
   assert.equal(fakeOnkyo.av.fetched.length >= 1 && fakeOnkyo.av.fetched[0].status, 206);
-  const phoneQuiet = () => page.evaluate(() => !window.__audios.some((a) => a.src.startsWith('blob:') && !a.paused));
+  const phoneQuiet = () => page.evaluate(() => !window.__audios.some((a) => a.src.startsWith('blob:') && !a.dataset.shadow && !a.paused));
   assert.equal(await phoneQuiet(), true, 'el teléfono no reproduce la canción');
   // Pantalla bloqueada: el teléfono reproduce silencio en bucle y la tarjeta muestra lo que suena en el Onkyo
-  assert.equal(await page.evaluate(() => window.__audios.some((a) => /silence-long\.wav$/.test(a.src) && !a.paused && a.loop)), true, 'silencio en bucle activo');
+  // la "sombra": audio silencioso de la misma duración que la canción del Onkyo, que avanza junto con él
+  await page.waitForFunction(() => window.__audios.some((a) => a.dataset.shadow && !a.paused && a.duration > 5 && a.duration < 20));
   const ms = () => page.evaluate(() => ({ state: navigator.mediaSession.playbackState, title: navigator.mediaSession.metadata?.title, artist: navigator.mediaSession.metadata?.artist }));
   const nowTitle = await page.locator('.onk-now .t').innerText();
   const m1 = await ms();
@@ -715,10 +716,11 @@ test('Onkyo: el administrador lo ve, envía la cola, controla y el amigo no tien
   await page.evaluate(() => window.__msh.pause());
   await until(() => fakeOnkyo.av.state === 'PAUSED_PLAYBACK');
   await page.waitForFunction(() => navigator.mediaSession.playbackState === 'paused');
-  assert.equal(await page.evaluate(() => window.__audios.some((a) => /silence-long\.wav$/.test(a.src) && !a.paused)), true, 'el silencio sigue sonando aunque el Onkyo esté en pausa');
+  await page.waitForFunction(() => window.__audios.some((a) => a.dataset.shadow && a.paused), null, { timeout: 5000 }); // la sombra también se pausa (la tarjeta muestra pausa)
   await page.evaluate(() => window.__msh.play());
   await until(() => fakeOnkyo.av.state === 'PLAYING');
   await page.waitForFunction(() => navigator.mediaSession.playbackState === 'playing');
+  await page.waitForFunction(() => window.__audios.some((a) => a.dataset.shadow && !a.paused)); // y vuelve a avanzar al seguir
   // la barra de la tarjeta salta de minuto en el Onkyo (y no se devuelve)
   await page.waitForFunction(() => document.querySelector('.player .times span:last-child')?.textContent === '0:08');
   await page.locator('.range').evaluate((el) => { el.value = 750; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); });
@@ -734,8 +736,20 @@ test('Onkyo: el administrador lo ve, envía la cola, controla y el amigo no tien
   await page.waitForTimeout(500);
   await page.locator('#mini-toggle').click();
   await until(() => fakeOnkyo.av.state === 'PLAYING');
+  // iOS puede dormir o matar la app mientras el Onkyo sigue sonando: al volver, la app retoma su control (no suena el teléfono)
+  await page.reload();
+  await page.locator('.mini').waitFor();
+  await page.locator('.mini').evaluate((el) => !el.hidden || new Promise((r) => setTimeout(r, 0)));
+  await until(async () => (await page.evaluate(() => window.__audios.some((a) => a.dataset.shadow))), 8000);
   await page.locator('.mini .main').click();
   await page.locator('.player').waitFor();
+  await page.getByText('Sonando en el Onkyo').waitFor();
+  assert.equal(await phoneQuiet(), true, 'tras recargar, el teléfono sigue callado');
+  const nPause = fakeOnkyo.log.filter((c) => c === 'AV:Pause').length;
+  await page.locator('.player').getByRole('button', { name: 'Pausar' }).click(); // el play del teléfono ahora pausa al Onkyo (antes sonaba el teléfono)
+  await until(() => fakeOnkyo.log.filter((c) => c === 'AV:Pause').length === nPause + 1);
+  await page.locator('.player').getByRole('button', { name: 'Reproducir' }).click();
+  await until(() => fakeOnkyo.av.state === 'PLAYING');
   await page.waitForTimeout(450);
   await page.locator('.player').getByRole('button', { name: 'Onkyo' }).click();
   await page.locator('.sheet h3', { hasText: 'Onkyo TX-8130' }).waitFor();

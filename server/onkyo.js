@@ -337,6 +337,18 @@ export function createOnkyo({ config, db, lib, log, transcoder }) {
     startPolling();
   }
 
+  let posAt = 0;
+  function applyInfo(info) {
+    posAt = Date.now();
+    const reported = hms(tag(info, 'RelTime'));
+    // Justo después de saltar de minuto el Onkyo puede seguir diciendo la posición vieja unos instantes: no se la creemos.
+    const expected = S.seekAt && Date.now() - S.seekAt < 4000 ? S.seekTo + (Date.now() - S.seekAt) / 1000 : null;
+    if (expected == null || reported >= S.seekTo - 1) { S.pos = reported; if (expected != null) S.seekAt = 0; } // ya llegó al nuevo minuto
+    else S.pos = Math.min(expected, S.dur || expected);
+    const d = hms(tag(info, 'TrackDuration'));
+    if (d) S.dur = d;
+  }
+
   async function poll() {
     if (S.busy || !['playing', 'loading', 'paused'].includes(S.state)) { if (!S.busy && S.state === 'idle') stopPolling(); return; }
     let st = null;
@@ -345,15 +357,7 @@ export function createOnkyo({ config, db, lib, log, transcoder }) {
       st = tag(await av('GetTransportInfo'), 'CurrentTransportState');
       if (st === 'PLAYING') info = await av('GetPositionInfo');
     } catch { return; }
-    if (info) {
-      const reported = hms(tag(info, 'RelTime'));
-      // Justo después de saltar de minuto el Onkyo puede seguir diciendo la posición vieja unos instantes: no se la creemos.
-      const expected = S.seekAt && Date.now() - S.seekAt < 4000 ? S.seekTo + (Date.now() - S.seekAt) / 1000 : null;
-      if (expected == null || reported >= S.seekTo - 1) { S.pos = reported; if (expected != null) S.seekAt = 0; } // ya llegó al nuevo minuto
-      else S.pos = Math.min(expected, S.dur || expected);
-      const d = hms(tag(info, 'TrackDuration'));
-      if (d) S.dur = d;
-    }
+    if (info) applyInfo(info);
     if (st === 'PLAYING') { S.sawPlaying = true; S.state = 'playing'; return; }
     if (st === 'PAUSED_PLAYBACK') { S.state = 'paused'; return; }
     if (st === 'TRANSITIONING') return;
@@ -371,6 +375,10 @@ export function createOnkyo({ config, db, lib, log, transcoder }) {
   const queueView = () => S.queue.map((t) => ({ id: t.id, title: t.title, artistName: t.artistName, albumId: t.albumId }));
   out.status = async () => {
     const d = await device();
+    // La app pregunta seguido: la posición se lee fresca del Onkyo (no la de hace 2 s), así la barra y la pantalla de bloqueo no se desfasan.
+    if (S.state === 'playing' && !S.busy && d.power && Date.now() - posAt > 600) {
+      try { applyInfo(await av('GetPositionInfo')); } catch { /* se usa la última conocida */ }
+    }
     const t = S.queue[S.index] || null;
     return {
       enabled: true, ...d, maxVolume: cfg.maxVolume, format: cfg.format,

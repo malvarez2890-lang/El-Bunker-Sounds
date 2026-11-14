@@ -307,3 +307,26 @@ describe('Onkyo: preparar el MP3 no cuelga la petición, y los fallos se explica
     assert.ok(s.error.length > 3);
   });
 });
+
+describe('Onkyo: la posición que ve la app es fresca', () => {
+  let t, fake, A, lanPort;
+  before(async () => {
+    fake = await startFakeOnkyo();
+    lanPort = await freePort();
+    t = await makeApp({
+      ONKYO_IP: '127.0.0.1', ONKYO_LAN_IP: '127.0.0.1', ONKYO_LAN_PORT: String(lanPort), ONKYO_LAN_HOST: '127.0.0.1', ONKYO_POLL_MS: '60000', ONKYO_POLL_NEAR_MS: '60000',
+      ONKYO_EISCP_PORT: String(fake.eiscpPort), ONKYO_UPNP_PORT: String(fake.upnpPort), ONKYO_BOOT_WAIT_MS: '100', ONKYO_INPUT_WAIT_MS: '50',
+    });
+    await t.ctx.onkyo.listen();
+    A = t.api((await t.login('admin@test.cl')).cookie);
+  });
+  after(async () => { await t.close(); fake.close(); });
+  test('aunque el sondeo interno sea lento, pedir el estado trae la posición actual', async () => {
+    const ids = (await A('GET', '/api/albums/1')).json().tracks.map((x) => x.id);
+    await A('POST', '/api/onkyo/play', { ids });
+    await sleep(1200);
+    const s = (await A('GET', '/api/onkyo')).json();
+    assert.ok(s.position >= 1, `la posición debería haber avanzado: ${s.position}`);
+    assert.equal(s.track.duration, 8);
+  });
+});

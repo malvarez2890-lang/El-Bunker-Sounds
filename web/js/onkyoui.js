@@ -5,13 +5,23 @@ import * as player from './player.js';
 import { openSheet, toast } from './ui.js';
 
 let available = false;
-export const setOnkyoAvailable = (v) => { available = !!v; };
+let watching = false;
+export const setOnkyoAvailable = (v) => {
+  available = !!v;
+  if (available && !watching) { // al volver a la app (desbloquear, cambiar de app) se vuelve a sincronizar con el Onkyo
+    watching = true;
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) resyncOnkyo(); });
+    window.addEventListener('pageshow', () => resyncOnkyo());
+  }
+};
 export const onkyoAvailable = () => available;
 
 const ERR = {
   onkyo_sin_conexion: 'No encuentro el Onkyo en la red. Revisa que esté enchufado y con el cable de red.',
   onkyo_no_enciende: 'El Onkyo no encendió. Prueba con el botón de su control.',
   sin_canciones: 'No hay canciones listas en la cola.',
+  nada_que_controlar: 'El Onkyo ya no tiene la lista. Vuelve a enviarla.',
+  accion_invalida: 'Ese comando no se pudo hacer.',
   onkyo_mp3_fallo: 'No pude preparar el MP3 de esta canción.',
   onkyo_rechazo: 'El Onkyo rechazó la canción.',
   onkyo_error: 'El Onkyo no pudo reproducirla.',
@@ -27,7 +37,31 @@ const playingNow = () => !!rs && (rs.state === 'playing' || rs.state === 'loadin
 const interp = () => (rs ? Math.min(rs.position + (rs.state === 'playing' ? (Date.now() - rsAt) / 1000 : 0), rs.track?.duration || 1e9) : 0);
 function setStatus(s) { rs = s; rsAt = Date.now(); if (s.index >= 0) player.syncIndex(s.index); player.refresh(); }
 async function rcall(body) {
-  try { setStatus(await post('/api/onkyo/control', body)); } catch (e) { toast(errMsg(e)); }
+  try { setStatus(await post('/api/onkyo/control', body)); } catch (e) {
+    if (e?.code === 'nada_que_controlar') leaveRemote({ stop: false }); // el servidor se reinició y perdió la lista
+    toast(errMsg(e));
+  }
+}
+
+let resyncing = false;
+/** Si el Onkyo sigue sonando (la app se cerró o iOS la durmió), se recupera su lista y se vuelve a controlar desde aquí. */
+export async function resyncOnkyo() {
+  if (!available || resyncing) return;
+  resyncing = true;
+  try {
+    const s = await get('/api/onkyo');
+    if (player.isRemote()) { if (s.online && s.power) setStatus(s); else if (s.online) leaveRemote({ stop: false }); return; }
+    const live = s.online && s.power && s.queue?.length && ['playing', 'paused', 'loading'].includes(s.state);
+    if (!live || player.isPlayingUI(player.state())) return; // si ahora suena algo en el teléfono, no se lo quitamos
+    const ids = s.queue.map((t) => t.id);
+    const { tracks } = await get(`/api/tracks?ids=${ids.slice(0, 300).join(',')}`);
+    const by = new Map(tracks.map((t) => [t.id, t]));
+    const list = ids.map((i) => by.get(i)).filter(Boolean);
+    if (!list.length) return;
+    const curId = s.queue[s.index]?.id;
+    player.adoptQueue(list, Math.max(0, list.findIndex((t) => t.id === curId)));
+    startRemote(s);
+  } catch { /* sin conexión: se intenta la próxima vez */ } finally { resyncing = false; }
 }
 function leaveRemote({ stop = true } = {}) {
   clearInterval(remoteTimer); remoteTimer = null;
