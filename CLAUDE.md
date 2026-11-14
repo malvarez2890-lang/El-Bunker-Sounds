@@ -7,6 +7,7 @@ App web (PWA) para escuchar la música casera del dueño y compartirla con ~10 a
 - **Nunca pedir que peguen claves/tokens en el chat.** Los secretos van en `.env` en el servidor (lo escribe el dueño en su terminal).
 - **No hay acceso al servidor** (Ubuntu `servermati`, usuario `tansis`, Docker, Tailscale, i7-7700, 11 GB RAM compartidos con servidores de Valheim → la app debe ser liviana). Se le dan comandos y él los corre. Despliegue = `./actualizar.sh`.
 - **NO mezclar proyectos**: existen "El Bunker Servers" (Valheim, repo `bunker-servers`) y "El Bunker TV" (cámaras, repo `mirador-casa`). Este proyecto es independiente: no reutiliza sus cuentas ni su puerto. Las cámaras (puerto 443 de `servermati`) NUNCA se exponen.
+- **Comandos para el dueño: siempre en un bloque de código aparte, de UNA sola línea, listo para copiar** (él los copia desde el celular y se equivoca al seleccionar). El de actualizar es siempre `cd ~/el-bunker-sounds && ./actualizar.sh` en su propio bloque, sin texto dentro; cada vez que haya cambios para desplegar, ponerlo así.
 - Probar todo lo posible (Chromium + Playwright, audio de prueba con ffmpeg) y **decir con honestidad qué se probó y qué no** (no hay iPhone ni la música real).
 - No crear repos ni tocar configuración de GitHub: si falta algo, pedírselo. Repo: `malvarez2890-lang/El-Bunker-Sounds` (privado). Commits y push cuando haya cambios.
 
