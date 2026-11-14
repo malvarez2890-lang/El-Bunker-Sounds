@@ -353,3 +353,30 @@ describe('Onkyo: la posición que ve la app es fresca', () => {
     assert.equal(s.track.duration, 8);
   });
 });
+
+describe('Onkyo que queda "en pausa" al terminar la canción', () => {
+  let t, fake, A, lanPort;
+  before(async () => {
+    fake = await startFakeOnkyo({ pauseAtEnd: true });
+    lanPort = await freePort();
+    t = await makeApp({
+      ONKYO_IP: '127.0.0.1', ONKYO_LAN_IP: '127.0.0.1', ONKYO_LAN_PORT: String(lanPort), ONKYO_LAN_HOST: '127.0.0.1', ONKYO_END_SLACK: '2',
+      ONKYO_EISCP_PORT: String(fake.eiscpPort), ONKYO_UPNP_PORT: String(fake.upnpPort), ONKYO_POLL_MS: '150', ONKYO_BOOT_WAIT_MS: '100', ONKYO_INPUT_WAIT_MS: '50',
+    });
+    await t.ctx.onkyo.listen();
+    A = t.api((await t.login('admin@test.cl')).cookie);
+  });
+  after(async () => { await t.close(); fake.close(); });
+  test('pasa a la siguiente aunque el equipo se quede en pausa; y una pausa hecha a mano NO avanza', async () => {
+    const ids = (await A('GET', '/api/albums/1')).json().tracks.map((x) => x.id);
+    await A('POST', '/api/onkyo/play', { ids: ids.slice(0, 2), index: 0 });
+    await until(async () => (await A('GET', '/api/onkyo')).json().index === 1, 20000);
+    // pausa hecha a mano a mitad de canción: se queda en pausa
+    await until(async () => (await A('GET', '/api/onkyo')).json().position >= 1, 8000);
+    await A('POST', '/api/onkyo/control', { action: 'pause' });
+    await sleep(800);
+    const s = (await A('GET', '/api/onkyo')).json();
+    assert.equal(s.state, 'paused');
+    assert.equal(s.index, 1);
+  });
+});

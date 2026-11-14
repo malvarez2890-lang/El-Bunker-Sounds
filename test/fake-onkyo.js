@@ -5,7 +5,7 @@ import { iscpFrame, iscpFrames } from '../server/onkyo.js';
 
 const listen = (srv) => new Promise((r) => srv.listen(0, '127.0.0.1', () => r(srv.address().port)));
 
-export async function startFakeOnkyo({ playMs = 1500, durSec = 8, singleConn = true } = {}) {
+export async function startFakeOnkyo({ playMs = 1500, durSec = 8, singleConn = true, pauseAtEnd = false } = {}) {
   const dev = { power: false, input: '05', volume: 10 };
   const log = []; // todo lo que le piden, para comprobarlo
   const av = { uri: null, meta: null, state: 'NO_MEDIA_PRESENT', startedAt: 0, fetched: [], rejectPlays: 0, rejectSets: 0, metas: [], offset: 0, noSeek: false, seeks: [], staleSeek: false };
@@ -37,7 +37,7 @@ export async function startFakeOnkyo({ playMs = 1500, durSec = 8, singleConn = t
   });
 
   const state = () => {
-    if (av.state === 'PLAYING' && Date.now() - av.startedAt > playMs) av.state = 'STOPPED';
+    if (av.state === 'PLAYING' && Date.now() - av.startedAt > playMs) av.state = pauseAtEnd ? 'PAUSED_PLAYBACK' : 'STOPPED'; // pauseAtEnd: como algunos equipos reales, quedan en pausa al terminar
     return av.state;
   };
   const upnp = http.createServer((req, res) => {

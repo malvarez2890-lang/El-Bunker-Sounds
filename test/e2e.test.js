@@ -721,6 +721,14 @@ test('Onkyo: el administrador lo ve, envía la cola, controla y el amigo no tien
   await until(() => fakeOnkyo.av.state === 'PLAYING');
   await page.waitForFunction(() => navigator.mediaSession.playbackState === 'playing');
   await page.waitForFunction(() => window.__audios.some((a) => a.dataset.shadow && !a.paused)); // y vuelve a avanzar al seguir
+  // Otra app (nota de voz de WhatsApp, llamada) nos quita el audio: la app NO pelea por recuperarlo, y el Onkyo sigue sonando
+  await page.evaluate(() => window.__audios.find((a) => a.dataset.shadow).pause());
+  await page.waitForTimeout(1800);
+  assert.equal(await page.evaluate(() => window.__audios.find((a) => a.dataset.shadow).paused), true, 'no recupera el audio por su cuenta');
+  assert.equal(fakeOnkyo.av.state, 'PLAYING', 'el Onkyo sigue sonando');
+  await page.evaluate(() => window.__msh.play()); // tú aprietas play en la tarjeta: solo se reanuda la sombra, no se toca al Onkyo
+  await page.waitForFunction(() => !window.__audios.find((a) => a.dataset.shadow).paused);
+  assert.equal(fakeOnkyo.av.state, 'PLAYING');
   // la barra de la tarjeta salta de minuto en el Onkyo (y no se devuelve)
   await page.waitForFunction(() => document.querySelector('.player .times span:last-child')?.textContent === '0:08');
   await page.locator('.range').evaluate((el) => { el.value = 750; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); });

@@ -4,6 +4,7 @@ import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
 import path from 'node:path';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { openDb } from './db.js';
 import { createMailer } from './mail.js';
@@ -18,6 +19,19 @@ import onkyoRoutes from './routes/onkyo.js';
 import { createOnkyo } from './onkyo.js';
 
 const webDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'web');
+
+/** Identificador corto de la versión de la app (cambia cuando cambian los archivos de web/): así el celular sabe cuándo hay algo nuevo. */
+function webVersion() {
+  const h = crypto.createHash('sha1');
+  const walk = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) { if (!/^(fonts|icons|splash)$/.test(e.name)) walk(full); } else { const st = fs.statSync(full); h.update(`${path.relative(webDir, full)}:${st.size}:${Math.floor(st.mtimeMs)};`); }
+    }
+  };
+  try { walk(webDir); } catch { /* sin carpeta web */ }
+  return h.digest('hex').slice(0, 8);
+}
 
 export async function buildApp(config, { logger = true } = {}) {
   const app = Fastify({
@@ -97,6 +111,8 @@ export async function buildApp(config, { logger = true } = {}) {
     req.user = req.url.startsWith('/api/') ? auth.userFromRequest(req, reply) : null;
   });
 
+  const version = webVersion();
+  app.get('/api/version', async () => ({ v: version }));
   await app.register(authRoutes, { auth, config });
   await app.register(apiRoutes, { auth, config, lib, db, covers });
   await app.register(adminRoutes, { auth, db, library, transcoder, config });

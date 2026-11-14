@@ -39,6 +39,7 @@ let remote = null; // { playing(), position(), duration(), toggle(), next(), pre
 // pantalla bloqueada (barra, tiempo, pausa) con un audio real, sin depender de que el JavaScript siga corriendo en segundo plano.
 let shadowUrl = null;
 let shadowFor = null;
+let shadowInterrupted = false; // otra app (WhatsApp, llamada…) nos quitó el audio
 function silentWav(sec) {
   const rate = 8000;
   const n = Math.max(rate, Math.ceil(sec * rate));
@@ -72,8 +73,8 @@ function syncShadow() {
   } else if (audio.readyState >= 1 && Math.abs(audio.currentTime - pos) > 1.5) {
     try { audio.currentTime = pos; } catch { /* sin posición */ }
   }
-  if (pl && audio.paused && audio.readyState >= 1) audio.play().catch(() => {});
-  if (!pl && !audio.paused) audio.pause();
+  if (pl && audio.paused && !shadowInterrupted && audio.readyState >= 1) audio.play().catch(() => {});
+  if (!pl && !audio.paused) { selfPause = true; audio.pause(); }
 }
 
 export function setRemote(r) {
@@ -201,7 +202,7 @@ const isSilentEl = (el) => (remote && el === audio) || /\/silence(-long)?\.wav$/
 const isSilent = () => isSilentEl(audio);
 let unlocked = false;
 function unlock() {
-  if (remote) { unlocked = true; syncShadow(); return; } // con el Onkyo no se toca el audio del teléfono (es la sombra); solo se intenta que suene
+  if (remote) { unlocked = true; resumeShadow(); return; } // con el Onkyo no se toca el audio del teléfono (es la sombra); solo se intenta que suene
   if (unlocked) return;
   if (audio.src && !isSilent()) { unlocked = true; return; } // ya hay una canción cargada: el reproductor ya está habilitado
   unlocked = true;
@@ -352,7 +353,7 @@ function shuffled(list) {
 export function toggle() {
   if (!current()) return;
   if (gate) { gate.then(() => toggle()); return; }
-  if (remote) return remote.toggle();
+  if (remote) { resumeShadow(); return remote.toggle(); }
   unlock();
   if (isPlayingUI()) {
     st.wantPlay = false;
@@ -367,7 +368,7 @@ export function toggle() {
 
 export function next({ auto = false } = {}) {
   if (!st.queue.length) return;
-  if (remote) return remote.next();
+  if (remote) { resumeShadow(); return remote.next(); }
   if (!auto) unlock();
   if (auto && st.repeat === 'one') { audio.currentTime = 0; startPlayback(); return; }
   let i = st.index + 1;
@@ -382,7 +383,7 @@ export function next({ auto = false } = {}) {
 
 export function prev() {
   if (!st.queue.length) return;
-  if (remote) return remote.prev();
+  if (remote) { resumeShadow(); return remote.prev(); }
   unlock();
   if (position() > 3 || st.index === 0) { seek(0); return; }
   load(st.index - 1);
@@ -507,7 +508,15 @@ function wire(el) {
 }
 decks.forEach(wire);
 // Mientras la música suena en el Onkyo, el silencio del teléfono nunca debe quedar pausado (si no, iOS retira la tarjeta de la pantalla bloqueada).
-for (const el of decks) el.addEventListener('pause', () => { if (remote && el === audio && remote.playing() && !el.ended) el.play().catch(() => {}); });
+// Si otra app toma el audio (nota de voz de WhatsApp, llamada, grabar un audio), iOS pausa la sombra: NO se pelea por recuperarlo.
+// Se reanuda solo cuando tú vuelves a tocar la app o aprietas play en la tarjeta.
+let selfPause = false;
+for (const el of decks) el.addEventListener('pause', () => {
+  if (remote && el === audio && !selfPause && remote.playing()) shadowInterrupted = true;
+  selfPause = false;
+});
+document.addEventListener('visibilitychange', () => { if (!document.hidden && remote) resumeShadow(); });
+export function resumeShadow() { shadowInterrupted = false; syncShadow(); }
 
 // ---------- pantalla bloqueada / controles del celular ----------
 function updateMediaSession() {
@@ -531,7 +540,7 @@ function registerMediaHandlers() {
   if (!('mediaSession' in navigator)) return;
   const ms = navigator.mediaSession;
   const set = (name, fn) => { try { ms.setActionHandler(name, fn); } catch { /* acción no disponible */ } };
-  set('play', () => { if (!isPlayingUI()) toggle(); });
+  set('play', () => { if (remote && remote.playing() && audio.paused) { resumeShadow(); return; } if (!isPlayingUI()) toggle(); });
   set('pause', () => { if (isPlayingUI()) toggle(); });
   set('previoustrack', () => prev());
   set('nexttrack', () => next());

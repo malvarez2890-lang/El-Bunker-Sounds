@@ -243,6 +243,14 @@ describe('servidor', () => {
     assert.equal((await t.app.inject({ method: 'GET', url: '/api/auth/google/start' })).statusCode, 404);
   });
 
+  test('versión de la app: pública, corta y estable', async () => {
+    const a = await t.app.inject({ method: 'GET', url: '/api/version' });
+    assert.equal(a.statusCode, 200);
+    assert.match(a.json().v, /^[0-9a-f]{8}$/);
+    const b = await t.app.inject({ method: 'GET', url: '/api/version' });
+    assert.equal(b.json().v, a.json().v);
+  });
+
   test('cerrar sesión invalida la cookie', async () => {
     const x = await t.login('salir@test.cl');
     const X = t.api(x.cookie);

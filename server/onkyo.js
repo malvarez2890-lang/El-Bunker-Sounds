@@ -293,7 +293,7 @@ export function createOnkyo({ config, db, lib, log, transcoder }) {
     S.index = i; S.state = 'loading'; S.err = null;
     if (mp3) { await mp3.ensure(t.id); const n = S.queue[i + 1]; if (n) mp3.prefetch(n.id); } // el MP3 de esta (y la siguiente) debe existir antes de enviar el enlace
     const { url, mime } = mintUrl(t.id);
-    S.index = i; S.pos = 0; S.dur = t.duration || 0; S.sawPlaying = false; S.startedAt = Date.now(); S.state = 'loading'; S.err = null;
+    S.index = i; S.pos = 0; S.dur = t.duration || 0; S.libDur = t.duration || 0; S.userPaused = false; S.sawPlaying = false; S.startedAt = Date.now(); S.state = 'loading'; S.err = null;
     // Se parte de un transporte limpio: el Onkyo real queda "trabado" (rechaza todo con 501) si se le cambia el enlace en pleno movimiento.
     // Si ya estaba detenido (pasó solo a la siguiente), no se pierde tiempo deteniéndolo otra vez.
     const t0 = Date.now();
@@ -359,10 +359,17 @@ export function createOnkyo({ config, db, lib, log, transcoder }) {
     } catch { return; }
     if (info) applyInfo(info);
     if (st === 'PLAYING') { S.sawPlaying = true; S.state = 'playing'; return; }
-    if (st === 'PAUSED_PLAYBACK') { S.state = 'paused'; return; }
+    if (st === 'PAUSED_PLAYBACK') {
+      // Algunos equipos quedan "en pausa" al terminar la canción. Si no la pausó una persona y estaba por terminar, cuenta como terminada.
+      const endNear = S.sawPlaying && !S.userPaused && (S.dur || S.libDur || 1e9) - S.pos <= cfg.endSlackSec;
+      if (!endNear) { S.state = 'paused'; return; }
+      log.info({ pos: S.pos, dur: S.dur }, 'Onkyo: quedó en pausa al final de la canción: se pasa a la siguiente');
+    }
     if (st === 'TRANSITIONING') return;
     // Detenido: ¿terminó la canción, o alguien lo paró?
-    const finished = S.sawPlaying && (S.dur ? S.pos >= S.dur - cfg.endSlackSec : Date.now() - S.startedAt > 5000);
+    const total = S.dur || S.libDur || 1e9; // la duración que informa el Onkyo; si no informa, la de la biblioteca
+    const finished = S.sawPlaying && (total < 1e9 ? S.pos >= total - cfg.endSlackSec : Date.now() - S.startedAt > 5000);
+    if (!finished) log.info({ estado: st, pos: S.pos, dur: S.dur, biblioteca: S.libDur }, 'Onkyo: se detuvo sin llegar al final: se considera detenido a mano');
     if (!finished) {
       if (S.sawPlaying || Date.now() - S.startedAt > 20000) { S.state = 'stopped'; stopPolling(); }
       return;
@@ -425,8 +432,8 @@ export function createOnkyo({ config, db, lib, log, transcoder }) {
     if (!(await idle())) return;
     if (!S.queue.length && action !== 'stop') throw new Error('nada_que_controlar');
     switch (action) {
-      case 'pause': await av('Pause'); S.state = 'paused'; break;
-      case 'resume': await av('Play', '<Speed>1</Speed>'); S.state = 'playing'; startPolling(); break;
+      case 'pause': await av('Pause'); S.state = 'paused'; S.userPaused = true; break;
+      case 'resume': await av('Play', '<Speed>1</Speed>'); S.state = 'playing'; S.userPaused = false; startPolling(); break;
       case 'stop': try { await av('Stop'); } catch { /* ya estaba detenido */ } S.state = 'stopped'; stopPolling(); break;
       case 'next': if (S.index + 1 < S.queue.length) await startLoad(S.index + 1); break;
       case 'prev': await startLoad(S.pos > 4 ? S.index : Math.max(0, S.index - 1)); break;

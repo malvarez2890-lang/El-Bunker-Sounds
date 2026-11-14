@@ -3,6 +3,7 @@ import { get, post, patch, onUnauthorized, onMutation, errorText } from './api.j
 import { createRouter, bump, TABS } from './router.js';
 import { openSheet, promptText, toast, errorState, go } from './ui.js';
 import * as player from './player.js';
+import { initVersion, checkForUpdate, appVersion } from './version.js';
 import { mountMini } from './playerui.js';
 import { setOnkyoAvailable, resyncOnkyo, onkyoPref } from './onkyoui.js';
 import { renderGate, renderPending, renderBlocked } from './views/gate.js';
@@ -108,9 +109,15 @@ function openProfile(me, avatar) {
           try { await patch('/api/me', { name }); me.name = name; boot(); } catch (e) { toast(errorText(e)); }
         }),
         me.isAdmin ? item('shield', pending ? `Administración (${pending} pendiente${pending === 1 ? '' : 's'})` : 'Administración', () => go('#/admin')) : null,
-        item('logout', 'Cerrar sesión', logout, 'danger')));
+        item('logout', 'Cerrar sesión', logout, 'danger'),
+        appVersion() ? h('div', { class: 'muted small', style: { 'text-align': 'center', padding: '10px 0 2px' } }, `Versión ${appVersion()}`) : null));
   });
 }
+
+initVersion();
+// Si hay una versión nueva de la app (después de actualizar el servidor), se aplica sola al volver a abrirla, sin que suene nada en el teléfono.
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForUpdate(); });
+setInterval(checkForUpdate, 5 * 60 * 1000);
 
 onUnauthorized(() => { player.reset(); boot(); });
 onMutation(bump);
