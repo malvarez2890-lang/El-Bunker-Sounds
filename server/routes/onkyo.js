@@ -33,6 +33,14 @@ export default async function onkyoRoutes(app, { auth, onkyo }) {
     return onkyo.status();
   });
 
+  app.post('/api/onkyo/queue', lim(60), async (req, reply) => {
+    if (!need(reply)) return;
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter((n) => Number.isInteger(n) && n > 0).slice(0, 300) : [];
+    if (!ids.length) return reply.code(400).send({ error: 'datos_invalidos' });
+    try { await onkyo.setQueue(req.user.id, ids); } catch (e) { return fail(reply, e); }
+    return onkyo.status();
+  });
+
   app.post('/api/onkyo/volume', lim(120), async (req, reply) => {
     if (!need(reply)) return;
     const level = req.body?.level;

@@ -4,7 +4,7 @@ import { createRouter, bump, TABS } from './router.js';
 import { openSheet, promptText, toast, errorState, go } from './ui.js';
 import * as player from './player.js';
 import { mountMini } from './playerui.js';
-import { setOnkyoAvailable, resyncOnkyo } from './onkyoui.js';
+import { setOnkyoAvailable, resyncOnkyo, onkyoPref } from './onkyoui.js';
 import { renderGate, renderPending, renderBlocked } from './views/gate.js';
 import home from './views/home.js';
 import { explore, lista } from './views/explore.js';
@@ -90,7 +90,9 @@ function renderShell(me) {
   }
   updateBadge();
   if (me.isAdmin) badgeTimer = setInterval(updateBadge, 60000);
-  Promise.resolve(player.restore()).finally(() => resyncOnkyo()); // primero lo último que sonaba en el teléfono; luego, si el Onkyo sigue sonando, se retoma su control
+  // Primero lo último que sonaba en el teléfono; luego, si el Onkyo sigue elegido o sonando, se retoma su control.
+  const back = Promise.resolve(player.restore()).finally(() => resyncOnkyo());
+  if (me.onkyo && onkyoPref()) player.holdPlays(back); // mientras tanto, lo que pongas espera (no suena primero el teléfono)
 }
 
 function openProfile(me, avatar) {

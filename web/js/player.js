@@ -12,7 +12,7 @@ let audio = decks[0];  // el que suena (o sonaría)
 let spare = decks[1];  // el que tiene lista la siguiente
 
 const subs = { change: new Set(), time: new Set(), error: new Set(), blocked: new Set() };
-const emit = (type, arg) => subs[type].forEach((fn) => fn(arg));
+const emit = (type, arg) => subs[type].forEach((fn) => fn(arg === undefined && type === 'change' ? st : arg)); // los oyentes de "change" esperan siempre el estado
 export const on = (type, fn) => { subs[type].add(fn); return () => subs[type].delete(fn); };
 
 const st = {
@@ -93,6 +93,13 @@ export function setRemote(r) {
   emit('change'); emit('time');
 }
 export const isRemote = () => !!remote;
+// Al abrir la app con el Onkyo elegido, lo que pongas espera un instante a saber si el Onkyo sigue ahí (así nunca suena primero el teléfono).
+let gate = null;
+export function holdPlays(p) {
+  const g = Promise.race([p.catch(() => {}), new Promise((r) => setTimeout(r, 2500))]);
+  gate = g;
+  g.then(() => { if (gate === g) gate = null; });
+}
 /** Al volver a abrir la app con el Onkyo sonando: se recupera su cola sin tocar el audio del teléfono. */
 export function adoptQueue(tracks, index) {
   st.original = tracks.slice(); st.queue = tracks.slice(); st.index = Math.max(0, Math.min(index, tracks.length - 1));
@@ -174,7 +181,11 @@ function trim(keep) {
   }
 }
 /** Mantiene en memoria la anterior, la actual y la siguiente, y empieza a bajar la siguiente. */
+/** Con el Onkyo, los cambios de la cola (agregar, quitar, "siguiente") también se le avisan, sin interrumpir lo que suena. */
+function syncRemoteQueue() { if (remote) remote.setQueue(st.queue.map((t) => t.id)); }
+
 function prefetch(index) {
+  if (remote) return; // el teléfono no descarga nada: suena en el Onkyo
   const q = st.queue;
   const next = q[index + 1] || (st.repeat === 'all' ? q[0] : null);
   const prev = q[index - 1];
@@ -190,6 +201,7 @@ const isSilentEl = (el) => (remote && el === audio) || /\/silence(-long)?\.wav$/
 const isSilent = () => isSilentEl(audio);
 let unlocked = false;
 function unlock() {
+  if (remote) { unlocked = true; syncShadow(); return; } // con el Onkyo no se toca el audio del teléfono (es la sombra); solo se intenta que suene
   if (unlocked) return;
   if (audio.src && !isSilent()) { unlocked = true; return; } // ya hay una canción cargada: el reproductor ya está habilitado
   unlocked = true;
@@ -311,7 +323,7 @@ function load(index, { autoplay = true, startAt = 0 } = {}) {
 
 /** Reproduce una lista desde una posición. shuffle:true = botón "Aleatorio"; false = en orden; sin indicar = mantiene el modo. */
 export function playTracks(tracks, startIndex = 0, { shuffle } = {}) {
-  if (remote) remote.leave(); // elegir música nueva en el teléfono = dejar de mandar al Onkyo
+  if (gate) { gate.then(() => playTracks(tracks, startIndex, { shuffle })); return; }
   unlock();
   const ready = tracks.filter((t) => t.ready !== false);
   if (!ready.length) return;
@@ -327,6 +339,7 @@ export function playTracks(tracks, startIndex = 0, { shuffle } = {}) {
     st.index = Math.max(0, ready.findIndex((t) => t.id === start.id));
   }
   errorStreak = 0;
+  if (remote) { remote.play(st.queue.map((t) => t.id), st.index); changed(); return; } // ya elegiste el Onkyo: lo que pongas suena allá, al tiro
   load(st.index);
 }
 
@@ -338,6 +351,7 @@ function shuffled(list) {
 
 export function toggle() {
   if (!current()) return;
+  if (gate) { gate.then(() => toggle()); return; }
   if (remote) return remote.toggle();
   unlock();
   if (isPlayingUI()) {
@@ -411,30 +425,30 @@ export function cycleRepeat() {
 }
 
 export function playNext(track) {
-  if (remote) return; // la cola del Onkyo ya está enviada: tocarla aquí la desalinearía
   if (track.ready === false) return;
   if (!st.queue.length) { playTracks([track], 0); return; }
   st.queue.splice(st.index + 1, 0, track);
   st.original.push(track);
   prefetch(st.index);
+  syncRemoteQueue();
   changed();
 }
 export function addToQueue(track) {
-  if (remote) return; // la cola del Onkyo ya está enviada: tocarla aquí la desalinearía
   if (track.ready === false) return;
   if (!st.queue.length) { playTracks([track], 0); return; }
   st.queue.push(track);
   st.original.push(track);
   prefetch(st.index);
+  syncRemoteQueue();
   changed();
 }
 export function removeFromQueue(i) {
-  if (remote) return; // la cola del Onkyo ya está enviada: tocarla aquí la desalinearía
   if (i === st.index || !st.queue[i]) return;
   const [t] = st.queue.splice(i, 1);
   st.original = st.original.filter((x) => x.id !== t.id);
   if (i < st.index) st.index--;
   prefetch(st.index);
+  syncRemoteQueue();
   changed();
 }
 

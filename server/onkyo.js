@@ -445,6 +445,16 @@ export function createOnkyo({ config, db, lib, log, transcoder }) {
     if (!Number.isInteger(i) || i < 0 || i >= S.queue.length) throw new Error('accion_invalida');
     await startLoad(i);
   };
+  /** Cambia la lista sin interrumpir lo que suena (agregar, quitar o "siguiente"): la canción actual debe seguir en la lista. */
+  out.setQueue = async (userId, ids) => {
+    const cur = S.queue[S.index];
+    if (!cur) throw new Error('nada_que_controlar');
+    const tracks = lib.byIds(userId, ids).filter((t) => t.ready);
+    const pos = tracks.findIndex((t) => t.id === cur.id);
+    if (pos < 0) throw new Error('accion_invalida');
+    S.queue = tracks; S.index = pos;
+    if (mp3 && tracks[pos + 1]) mp3.prefetch(tracks[pos + 1].id);
+  };
   out.setVolume = setVolume;
   out.power = async (on) => {
     if (on) return powerOn();

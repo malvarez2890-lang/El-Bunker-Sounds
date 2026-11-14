@@ -750,6 +750,22 @@ test('Onkyo: el administrador lo ve, envía la cola, controla y el amigo no tien
   await until(() => fakeOnkyo.log.filter((c) => c === 'AV:Pause').length === nPause + 1);
   await page.locator('.player').getByRole('button', { name: 'Reproducir' }).click();
   await until(() => fakeOnkyo.av.state === 'PLAYING');
+  // Con el Onkyo elegido, lo que pongas en OTRO disco suena allá, al tiro (no en el teléfono)
+  await page.getByRole('button', { name: 'Cerrar reproductor' }).click();
+  await page.locator('.player').waitFor({ state: 'detached' });
+  const nSet = avCount();
+  await page.goto(`${base}/#/lista/album`);
+  await settled(page);
+  await P(page).locator('.card').nth(1).click();
+  await settled(page);
+  await page.getByRole('button', { name: 'Reproducir', exact: true }).first().click();
+  await until(() => avCount() === nSet + 1);
+  assert.equal(await phoneQuiet(), true, 'el disco nuevo no suena en el teléfono');
+  await page.locator('.mini .s', { hasText: 'en el Onkyo' }).waitFor();
+  await page.waitForTimeout(450);
+  await shot(page, '63-onkyo-otro-disco');
+  await page.locator('.mini .main').click();
+  await page.locator('.player').waitFor();
   await page.waitForTimeout(450);
   await page.locator('.player').getByRole('button', { name: 'Onkyo' }).click();
   await page.locator('.sheet h3', { hasText: 'Onkyo TX-8130' }).waitFor();

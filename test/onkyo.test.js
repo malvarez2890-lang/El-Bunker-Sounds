@@ -105,6 +105,23 @@ describe('Onkyo (equipo simulado)', () => {
     assert.equal((await A('POST', '/api/onkyo/volume', { level: 'alto' })).statusCode, 400);
   });
 
+  test('agregar, quitar y poner "siguiente" cambia la lista sin interrumpir lo que suena', async () => {
+    const all = (await A('GET', '/api/tracks?ids=' + ids.join(','))).json().tracks.map((x) => x.id);
+    await A('POST', '/api/onkyo/play', { ids: all.slice(0, 3), index: 0 });
+    await until(async () => (await A('GET', '/api/onkyo')).json().state === 'playing');
+    const plays = fake.log.filter((c) => c === 'AV:SetAVTransportURI').length;
+    const extra = (await A('GET', '/api/albums/2')).json().tracks[0].id;
+    const r = await A('POST', '/api/onkyo/queue', { ids: [all[0], extra, all[1], all[2]] });
+    assert.equal(r.statusCode, 200, r.body);
+    assert.deepEqual(r.json().queue.map((x) => x.id), [all[0], extra, all[1], all[2]]);
+    assert.equal(r.json().index, 0);
+    assert.equal(fake.log.filter((c) => c === 'AV:SetAVTransportURI').length, plays, 'no se reenvía nada: sigue sonando');
+    // la canción que suena debe seguir en la lista
+    assert.equal((await A('POST', '/api/onkyo/queue', { ids: [all[1], all[2]] })).statusCode, 400);
+    assert.equal((await A('POST', '/api/onkyo/queue', { ids: [] })).statusCode, 400);
+    assert.equal((await F('POST', '/api/onkyo/queue', { ids: all })).statusCode, 403);
+  });
+
   test('subir el volumen mientras se consulta el estado no hace que parezca desconectado', async () => {
     const jobs = [];
     for (let i = 0; i < 12; i++) {
@@ -285,8 +302,12 @@ describe('Onkyo: preparar el MP3 no cuelga la petición, y los fallos se explica
     await A('POST', '/api/onkyo/control', { action: 'stop' });
     fake.av.metas.length = 0;
     fake.av.rejectSets = 2;
-    const r = await A('POST', '/api/onkyo/play', { ids: [ids[1]] });
-    assert.equal(r.statusCode, 200, r.body);
+    let r;
+    for (let i = 0; i < 10 && fake.av.metas.length === 0; i++) { // si aún termina un trabajo anterior, la orden se ignora: se repite
+      r = await A('POST', '/api/onkyo/play', { ids: [ids[1]] });
+      assert.equal(r.statusCode, 200, r.body);
+      await sleep(400);
+    }
     await until(async () => (await A('GET', '/api/onkyo')).json().state === 'playing', 15000);
     assert.equal(fake.av.metas.length, 3);
     const un = (x) => x.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
@@ -299,7 +320,9 @@ describe('Onkyo: preparar el MP3 no cuelga la petición, y los fallos se explica
     t.ctx.db.prepare("UPDATE tracks SET src_rel='no-existe.wav' WHERE id=?").run(ids[0]);
     const dir = path.join(t.dataDir, 'onkyo-mp3');
     for (const f of fs.readdirSync(dir)) if (f.startsWith(`${ids[0]}-`)) fs.unlinkSync(path.join(dir, f)); // sin copia ya hecha
+    await sleep(600); // que termine cualquier trabajo anterior
     await A('POST', '/api/onkyo/control', { action: 'stop' });
+    await sleep(300);
     const r = await A('POST', '/api/onkyo/play', { ids: [ids[0]] });
     let s;
     if (r.statusCode === 200) s = (await until(async () => { const x = (await A('GET', '/api/onkyo')).json(); return x.state === 'stopped' && x.error ? x : null; }, 8000));

@@ -5,6 +5,11 @@ import * as player from './player.js';
 import { openSheet, toast } from './ui.js';
 
 let available = false;
+// "Salida Onkyo": mientras esté activa, TODO lo que pongas suena en el Onkyo hasta que te desconectes (se recuerda aunque cierres la app).
+const PREF = 'ebs_output_onkyo';
+const prefOn = () => { try { return localStorage.getItem(PREF) === '1'; } catch { return false; } };
+const setPref = (on) => { try { on ? localStorage.setItem(PREF, '1') : localStorage.removeItem(PREF); } catch { /* sin almacenamiento */ } };
+export const onkyoPref = prefOn;
 let watching = false;
 export const setOnkyoAvailable = (v) => {
   available = !!v;
@@ -38,7 +43,7 @@ const interp = () => (rs ? Math.min(rs.position + (rs.state === 'playing' ? (Dat
 function setStatus(s) { rs = s; rsAt = Date.now(); if (s.index >= 0) player.syncIndex(s.index); player.refresh(); }
 async function rcall(body) {
   try { setStatus(await post('/api/onkyo/control', body)); } catch (e) {
-    if (e?.code === 'nada_que_controlar') leaveRemote({ stop: false }); // el servidor se reinició y perdió la lista
+    if (e?.code === 'nada_que_controlar') { rs = { ...(rs || {}), state: 'idle' }; player.refresh(); } // el servidor se reinició y perdió la lista: con dar play se envía de nuevo
     toast(errMsg(e));
   }
 }
@@ -52,7 +57,8 @@ export async function resyncOnkyo() {
     const s = await get('/api/onkyo');
     if (player.isRemote()) { if (s.online && s.power) setStatus(s); else if (s.online) leaveRemote({ stop: false }); return; }
     const live = s.online && s.power && s.queue?.length && ['playing', 'paused', 'loading'].includes(s.state);
-    if (!live || player.isPlayingUI(player.state())) return; // si ahora suena algo en el teléfono, no se lo quitamos
+    if (player.isPlayingUI(player.state())) return; // si ahora suena algo en el teléfono, no se lo quitamos
+    if (!live) { if (prefOn() && s.online && s.power) startRemote(s); return; } // elegiste el Onkyo y sigue encendido: lo que pongas suena allá
     const ids = s.queue.map((t) => t.id);
     const { tracks } = await get(`/api/tracks?ids=${ids.slice(0, 300).join(',')}`);
     const by = new Map(tracks.map((t) => [t.id, t]));
@@ -64,15 +70,34 @@ export async function resyncOnkyo() {
   } catch { /* sin conexión: se intenta la próxima vez */ } finally { resyncing = false; }
 }
 function leaveRemote({ stop = true } = {}) {
+  setPref(false);
   clearInterval(remoteTimer); remoteTimer = null;
   player.setRemote(null);
   if (stop) post('/api/onkyo/control', { action: 'stop' }).catch(() => {});
 }
+/** Envía una lista al Onkyo y deja la pantalla reaccionando de inmediato (cargando) mientras él responde. */
+async function sendList(ids, index) {
+  const t = player.current();
+  rs = { ...(rs || {}), state: 'loading', index, position: 0, track: t ? { id: t.id, title: t.title, artistName: t.artistName, albumId: t.albumId, duration: t.duration } : null };
+  rsAt = Date.now(); player.refresh();
+  try { setStatus(await post('/api/onkyo/play', { ids, index })); } catch (e) { rs = { ...rs, state: 'stopped' }; player.refresh(); toast(errMsg(e)); }
+}
+
 export function startRemote(s) {
   rs = s; rsAt = Date.now();
+  setPref(true);
   player.setRemote({
     playing: playingNow, position: interp, duration: () => rs?.track?.duration || 0,
-    toggle: () => rcall(playingNow() ? { action: 'pause' } : rs?.state === 'stopped' ? { action: 'jump', index: rs.index } : { action: 'resume' }),
+    play: sendList, // elegiste una canción/disco en la app: se envía al tiro al Onkyo
+    setQueue: async (ids) => {
+      try { await post('/api/onkyo/queue', { ids }); } catch (e) { if (e?.code === 'nada_que_controlar') { /* nada sonando: se enviará completa al dar play */ } else toast(errMsg(e)); }
+    },
+    toggle: () => {
+      if (playingNow()) return rcall({ action: 'pause' });
+      if (rs?.state === 'paused') return rcall({ action: 'resume' });
+      const q = player.state(); // detenido o sin nada: se envía la lista actual desde la canción que ves
+      return q.queue.length ? sendList(q.queue.map((t) => t.id), q.index) : undefined;
+    },
     seek: async (sec) => {
       const before = { pos: rs?.position, at: rsAt };
       if (rs) { rs.position = sec; rsAt = Date.now(); player.tickTime(); } // la barra se queda donde la soltaste mientras el Onkyo responde

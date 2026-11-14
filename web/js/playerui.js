@@ -27,6 +27,7 @@ export function mountMini(parent) {
         h('button', { class: 'icon-btn', 'aria-label': 'Siguiente', onclick: (e) => { e.stopPropagation(); player.next(); } }, icon('next')),
         h('div', { class: 'bar' }));
     }
+    miniEl.querySelector('.s').textContent = t.artistName + (player.isRemote() ? ' · en el Onkyo' : '');
     const btn = miniEl.querySelector('#mini-toggle');
     const pl = player.isPlayingUI(s);
     clear(btn).append(icon(pl ? 'pause' : 'play'));
