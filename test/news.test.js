@@ -1,6 +1,7 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeApp } from './helpers.js';
+import { crearNovedad, PRESETS } from '../server/cli/crear-novedad.js';
 
 describe('novedades (tarjetas del administrador)', () => {
   let t, A, F;
@@ -53,5 +54,35 @@ describe('novedades (tarjetas del administrador)', () => {
   test('el texto no se interpreta como código (se guarda tal cual)', async () => {
     const r = await A('POST', '/api/admin/news', { title: '<img src=x onerror=alert(1)>', body: '<b>hola</b>' });
     assert.equal(r.json().item.title, '<img src=x onerror=alert(1)>');
+  });
+});
+
+describe('crear una novedad desde la terminal del servidor', () => {
+  let t;
+  before(async () => { t = await makeApp(); });
+  after(() => t.close());
+
+  test('la plantilla de La Vita È Un Gioco existe y cabe en los límites de la tarjeta', () => {
+    const p = PRESETS['la-vita-singles'];
+    assert.ok(p.titulo.length <= 80 && p.texto.length <= 500);
+    assert.match(p.texto, /21 de noviembre/);
+  });
+  test('sin el álbum en la biblioteca, avisa y no crea nada', () => {
+    const r = crearNovedad({ db: t.ctx.db, argv: ['la-vita-singles'] });
+    assert.equal(r.ok, false);
+    assert.match(r.msg, /Buscar música nueva/);
+    assert.equal(t.ctx.news.list({ all: true }).length, 0);
+  });
+  test('con el álbum: crea la novedad enlazada, y repetir el comando no la duplica', () => {
+    const argv = ['--titulo', 'Prueba', '--texto', 'Hola', '--album', 'musica per te'];
+    const r = crearNovedad({ db: t.ctx.db, argv });
+    assert.equal(r.ok, true, r.msg);
+    assert.ok(r.item.album, 'enlazada al álbum');
+    assert.equal(r.item.active, true);
+    assert.match(crearNovedad({ db: t.ctx.db, argv }).msg, /Ya existía/);
+    assert.equal(t.ctx.news.list({ all: true }).length, 1);
+  });
+  test('sin título ni plantilla, explica qué falta', () => {
+    assert.equal(crearNovedad({ db: t.ctx.db, argv: [] }).ok, false);
   });
 });

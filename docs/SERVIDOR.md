@@ -174,6 +174,8 @@ Las canciones que tienen su WAV en la carpeta se escuchan; las demás aparecen e
 
 **Novedades:** en Administración → Novedades → "Nueva novedad" (título, texto corto, álbum que se abre al tocar). Aparece arriba en Inicio para todos. Puedes ocultarla o borrarla cuando quieras.
 
+**Crear una novedad desde la terminal** (sin abrir la app), por ejemplo la del lanzamiento de *La Vita È Un Gioco*: primero copia la música y toca "Buscar música nueva"; después corre `docker compose exec app node server/cli/crear-novedad.js la-vita-singles`. Es seguro repetirlo: no la duplica.
+
 **Avisos al celular:** cada persona los activa una vez (menú del perfil → "Activar avisos de novedades", o el botón "Avísame" de la novedad). En iPhone hace falta iOS 16.4 o más nuevo y la app instalada en la pantalla de inicio. Tú puedes mandar un aviso al guardar una novedad (casilla "Enviar aviso al celular de todos"), probarlo en tu celular ("Probar en mi celular") y activar el aviso automático cuando llegue música nueva. Es gratis y no usa ninguna app extra.
 
 ## Si algo falla
