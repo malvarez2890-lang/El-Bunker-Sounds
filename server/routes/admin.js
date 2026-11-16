@@ -1,4 +1,4 @@
-export default async function adminRoutes(app, { auth, db, library, transcoder, config }) {
+export default async function adminRoutes(app, { auth, db, library, transcoder, config, news }) {
   const guard = { preHandler: (req, reply, done) => (auth.needAdmin(req, reply) ? done() : undefined) };
   const userRow = (u) => ({
     id: u.id, email: u.email, name: u.name, status: u.status, isAdmin: !!u.is_admin,
@@ -45,5 +45,25 @@ export default async function adminRoutes(app, { auth, db, library, transcoder, 
     const n = transcoder.retryErrors();
     transcoder.kick();
     return { ok: true, retried: n };
+  });
+
+  // ---------- novedades ----------
+  app.get('/api/admin/news', guard, async () => ({ news: news.list({ all: true }) }));
+  app.post('/api/admin/news', guard, async (req, reply) => {
+    const item = news.create(req.body || {});
+    if (!item) return reply.code(400).send({ error: 'datos_invalidos' });
+    return { item };
+  });
+  app.post('/api/admin/news/:id', guard, async (req, reply) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return reply.code(400).send({ error: 'datos_invalidos' });
+    const item = news.update(id, req.body || {});
+    if (item === null) return reply.code(404).send({ error: 'no_encontrado' });
+    if (item === undefined) return reply.code(400).send({ error: 'datos_invalidos' });
+    return { item };
+  });
+  app.delete('/api/admin/news/:id', guard, async (req, reply) => {
+    const id = Number(req.params.id);
+    return news.remove(id) ? { ok: true } : reply.code(404).send({ error: 'no_encontrado' });
   });
 }

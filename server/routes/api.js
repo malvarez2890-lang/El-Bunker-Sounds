@@ -4,7 +4,7 @@ import { now } from '../util.js';
 
 const intParam = (v) => (/^\d{1,12}$/.test(String(v)) ? Number(v) : NaN);
 
-export default async function apiRoutes(app, { auth, config, lib, db, covers }) {
+export default async function apiRoutes(app, { auth, config, lib, db, covers, news }) {
   const guard = { preHandler: (req, reply, done) => (auth.needActive(req, reply) ? done() : undefined) };
   const bad = (reply, msg = 'datos_invalidos') => reply.code(400).send({ error: msg });
   const notFound = (reply) => reply.code(404).send({ error: 'no_encontrado' });
@@ -14,6 +14,7 @@ export default async function apiRoutes(app, { auth, config, lib, db, covers }) 
     const latest = lib.allAlbums().slice(0, 12);
     return {
       featured: latest[0] || null,
+      news: news.list(),
       latest,
       continue: lib.recentAlbums(req.user.id, 12),
       counts: db.prepare(`SELECT (SELECT COUNT(*) FROM tracks WHERE missing=0 AND audio_status='ok') AS tracks,

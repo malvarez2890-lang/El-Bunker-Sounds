@@ -670,6 +670,35 @@ test('mientras baja una canción suena un silencio (así, con el teléfono bloqu
   assert.equal(await page.evaluate(() => window.__audios.filter((a) => /silence-long\.wav$/.test(a.src) && !a.paused).length), 0);
 });
 
+test('novedades: el administrador crea una y aparece arriba en Inicio (destacado más pequeño)', { skip: !pw }, async () => {
+  const { page } = admin;
+  await page.goto(`${base}/#/admin`); await settled(page);
+  await P(page).getByRole('button', { name: 'Nueva novedad' }).click();
+  await page.locator('.sheet h3', { hasText: 'Nueva novedad' }).waitFor();
+  await page.getByLabel('Título').fill('Próximo lanzamiento');
+  await page.getByLabel('Texto').fill('Cuatro singles del nuevo álbum.');
+  await page.getByLabel('Álbum que se abre al tocar').selectOption({ index: 1 });
+  await page.waitForTimeout(450);
+  await shot(page, '70-novedad-formulario');
+  await page.getByRole('button', { name: 'Guardar' }).click();
+  await page.getByText('Novedad guardada').waitFor();
+  await P(page).getByText('VISIBLE').first().waitFor();
+  await page.goto(`${base}/#/`); await settled(page);
+  await P(page).locator('.hero.news h2', { hasText: 'Próximo lanzamiento' }).waitFor();
+  await P(page).locator('.feat-row').waitFor();
+  assert.equal(await P(page).locator('.hero:not(.news)').count(), 0, 'el destacado grande se reemplaza por la fila pequeña');
+  await page.waitForFunction(() => [...document.images].every((i) => i.complete));
+  await shot(page, '71-novedad-inicio');
+  await P(page).getByRole('link', { name: 'Ver álbum' }).click();
+  await page.locator('.detail-head h1').waitFor();
+  await page.goto(`${base}/#/admin`); await settled(page);
+  await P(page).getByRole('button', { name: /^Ocultar Próximo lanzamiento/ }).click();
+  await P(page).getByText('OCULTA').waitFor();
+  await page.goto(`${base}/#/`); await settled(page);
+  assert.equal(await P(page).locator('.hero.news').count(), 0);
+  await P(page).locator('.hero').first().waitFor(); // vuelve el destacado grande
+});
+
 test('Onkyo: el administrador lo ve, envía la cola, controla y el amigo no tiene botón', { skip: !pw }, async () => {
   const { page } = admin;
   await page.goto(`${base}/#/`); await settled(page);

@@ -104,6 +104,18 @@ const MIGRATIONS = [
   `
   ALTER TABLE albums ADD COLUMN release_date TEXT;
   `,
+  // 3: novedades (tarjetas en Inicio, las crea el administrador)
+  `
+  CREATE TABLE news (
+    id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL DEFAULT '',
+    album_id INTEGER REFERENCES albums(id) ON DELETE SET NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  `,
 ];
 
 export function openDb(dataDir) {

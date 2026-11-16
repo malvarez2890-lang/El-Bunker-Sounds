@@ -17,6 +17,7 @@ import apiRoutes from './routes/api.js';
 import adminRoutes from './routes/admin.js';
 import onkyoRoutes from './routes/onkyo.js';
 import { createOnkyo } from './onkyo.js';
+import { createNews } from './news.js';
 
 const webDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'web');
 
@@ -52,6 +53,7 @@ export async function buildApp(config, { logger = true } = {}) {
   const auth = createAuth({ db, config, mailer, log });
   const lib = createLibraryQueries(db);
   const transcoder = createTranscoder({ db, config, log });
+  const news = createNews({ db, lib });
   const onkyo = createOnkyo({ config, db, lib, log, transcoder });
   const covers = createCovers({ config });
   app.addHook('onClose', async () => onkyo.close());
@@ -82,7 +84,7 @@ export async function buildApp(config, { logger = true } = {}) {
   };
 
   app.decorate('db', db);
-  app.decorate('ctx', { config, db, auth, lib, library, transcoder, covers, mailer, onkyo });
+  app.decorate('ctx', { config, db, auth, lib, library, transcoder, covers, mailer, onkyo, news });
 
   await app.register(cookie);
   await app.register(rateLimit, { global: true, max: 1200, timeWindow: '1 minute' });
@@ -119,8 +121,8 @@ export async function buildApp(config, { logger = true } = {}) {
   const version = webVersion(process.env.APP_TZ || 'America/Santiago');
   app.get('/api/version', async () => ({ v: version.id, label: version.label }));
   await app.register(authRoutes, { auth, config });
-  await app.register(apiRoutes, { auth, config, lib, db, covers });
-  await app.register(adminRoutes, { auth, db, library, transcoder, config });
+  await app.register(apiRoutes, { auth, config, lib, db, covers, news });
+  await app.register(adminRoutes, { auth, db, library, transcoder, config, news });
   await app.register(onkyoRoutes, { auth, onkyo });
 
   // Archivos de la app (HTML, JS, CSS, fuentes e iconos): son públicos; la música no.

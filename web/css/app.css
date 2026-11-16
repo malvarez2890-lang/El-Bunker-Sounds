@@ -465,3 +465,18 @@ body.has-mini .toast { --mini-h: 68px; }
 /* canciones "por salir": en gris, sin menú; al tocarlas la app avisa "Disponible pronto" */
 .row.upcoming { opacity: .42; }
 .row.upcoming .t, .row.upcoming .num { color: var(--muted); }
+
+/* novedades (tarjeta del administrador) y destacado compacto */
+.hero.news { border: 1px solid rgba(255, 203, 36, .35); margin-top: 12px; }
+.hero.news.noart { grid-template-columns: 1fr; }
+.hero.news .news-body { margin: 6px 0 0; color: var(--muted); font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; }
+.feat-row { display: flex; align-items: center; gap: 12px; background: var(--card); border-radius: var(--r-md); padding: 10px 12px 10px 10px; margin: 12px 0; }
+.feat-row .cover { width: 56px; height: 56px; flex: none; border-radius: 10px; }
+.feat-row .main { flex: 1; min-width: 0; }
+.feat-row .t { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.feat-row .s { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.feat-row .eyebrow { font-size: 10px; margin-bottom: 2px; }
+.field.area { height: 110px; padding: 12px 14px; resize: none; line-height: 1.4; font-family: inherit; }
+select.field { appearance: none; -webkit-appearance: none; }
+.check { display: flex; align-items: center; gap: 10px; font-size: 15px; margin: 12px 0 0; }
+.check input { width: 20px; height: 20px; accent-color: var(--gold); }

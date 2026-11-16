@@ -1,6 +1,6 @@
 import { h, icon, plural, fill, add } from '../dom.js';
 import { get, post, del, errorText } from '../api.js';
-import { backBar, toast, confirmDialog, emptyState } from '../ui.js';
+import { backBar, toast, confirmDialog, emptyState, openSheet } from '../ui.js';
 
 const ago = (ts) => {
   if (!ts) return 'nunca';
@@ -14,8 +14,10 @@ const ago = (ts) => {
 export async function admin(ctx) {
   const usersBox = h('div');
   const libBox = h('div');
+  const newsBox = h('div');
   const root = h('div', null, backBar(), h('h1', { class: 'h1' }, 'Administración'),
     h('div', { class: 'eyebrow', style: { 'margin-bottom': '8px' } }, 'Personas'), usersBox,
+    h('div', { class: 'eyebrow', style: { margin: '28px 0 8px' } }, 'Novedades'), newsBox,
     h('div', { class: 'eyebrow', style: { margin: '28px 0 8px' } }, 'Biblioteca'), libBox,
     h('div', { class: 'eyebrow', style: { margin: '28px 0 8px' } }, 'Herramientas'),
     h('a', { class: 'libcard', href: '#/diagnostico' }, h('div', { class: 'ico', style: { '--c': '#2c4a3f' } }, icon('wave')),
@@ -80,6 +82,41 @@ export async function admin(ctx) {
     if (busy && root.isConnected) timer = setTimeout(() => root.isConnected && loadLib().catch(() => {}), 3000);
   }
 
-  await Promise.all([loadUsers(), loadLib()]);
+  // ---- novedades: tarjetas que ven todos arriba en Inicio ----
+  async function openNewsForm(item) {
+    let albums = [];
+    try { albums = (await get('/api/albums')).albums; } catch { /* sin lista de álbumes */ }
+    openSheet((box, o) => {
+      const title = h('input', { class: 'field', value: item?.title || '', maxLength: 80, 'aria-label': 'Título', placeholder: 'Título (ej. Próximo lanzamiento)', autocomplete: 'off' });
+      const body = h('textarea', { class: 'field area', maxLength: 500, 'aria-label': 'Texto', placeholder: 'Texto corto (opcional)' }, item?.body || '');
+      const sel = h('select', { class: 'field', 'aria-label': 'Álbum que se abre al tocar' },
+        h('option', { value: '' }, 'Sin álbum'), ...albums.map((a) => h('option', { value: String(a.id), selected: item?.album?.id === a.id }, `${a.artistName} · ${a.title}`)));
+      const active = h('input', { type: 'checkbox', checked: item ? !!item.active : true });
+      const save = async () => {
+        if (!title.value.trim()) { toast('Escribe un título.'); return; }
+        const payload = { title: title.value, body: body.value, albumId: sel.value ? Number(sel.value) : null, active: active.checked };
+        try {
+          await post(item ? `/api/admin/news/${item.id}` : '/api/admin/news', payload);
+          o.close(); toast('Novedad guardada'); loadNews();
+        } catch (e) { toast(errorText(e)); }
+      };
+      box.append(h('h3', null, item ? 'Editar novedad' : 'Nueva novedad'), title, h('div', { style: { height: '10px' } }), body,
+        h('div', { style: { height: '10px' } }), sel, h('label', { class: 'check' }, active, 'Mostrar en Inicio'),
+        h('div', { class: 'btns', style: { 'margin-top': '16px' } }, h('button', { class: 'btn btn-ghost', onclick: () => o.close() }, 'Cancelar'), h('button', { class: 'btn btn-primary', onclick: save }, 'Guardar')));
+    });
+  }
+  async function loadNews() {
+    const { news } = await get('/api/admin/news');
+    fill(newsBox,
+      ...(news.length ? news.map((n) => h('div', { class: 'row' },
+        h('div', { class: 'main' }, h('div', { class: 't' }, n.title, h('span', { class: 'tag' }, n.active ? 'VISIBLE' : 'OCULTA')), h('div', { class: 's' }, n.album ? `Abre: ${n.album.title}` : (n.body || 'Sin texto'))),
+        h('button', { class: 'icon-btn', 'aria-label': `Editar ${n.title}`, onclick: () => openNewsForm(n) }, icon('edit')),
+        h('button', { class: 'icon-btn', 'aria-label': n.active ? `Ocultar ${n.title}` : `Mostrar ${n.title}`, onclick: async () => { try { await post(`/api/admin/news/${n.id}`, { active: !n.active }); loadNews(); } catch (e) { toast(errorText(e)); } } }, icon(n.active ? 'close' : 'check')),
+        h('button', { class: 'icon-btn', 'aria-label': `Borrar ${n.title}`, onclick: async () => { if (await confirmDialog({ title: 'Borrar novedad', text: `“${n.title}” dejará de verse.`, confirm: 'Borrar', danger: true })) { try { await del(`/api/admin/news/${n.id}`); loadNews(); } catch (e) { toast(errorText(e)); } } } }, icon('trash'))))
+        : [h('div', { class: 'muted small', style: { margin: '4px 0 10px' } }, 'Todavía no hay novedades. Aparecen arriba en Inicio para todos.')]),
+      h('button', { class: 'btn btn-secondary btn-sm', style: { 'margin-top': '10px' }, onclick: () => openNewsForm(null) }, icon('plus'), 'Nueva novedad'));
+  }
+
+  await Promise.all([loadUsers(), loadLib(), loadNews()]);
   return root;
 }

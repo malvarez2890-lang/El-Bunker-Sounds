@@ -44,6 +44,21 @@ function mixCard(label, sub, albumLike, onclick) {
   return h('button', { class: 'card', onclick }, c, h('div', { class: 't' }, label), h('div', { class: 's' }, sub));
 }
 
+const fechaLarga = (iso) => { const [y, m, d] = String(iso || '').split('-').map(Number); return y ? new Date(y, m - 1, d).toLocaleDateString('es-CL', { day: 'numeric', month: 'long' }) : ''; };
+
+/** Tarjeta de novedad (la publica el administrador): título, texto y, si tiene álbum, su portada y un botón para verlo. */
+function newsCard(n) {
+  const a = n.album;
+  const sub = a && a.totalCount > a.trackCount && a.releaseDate ? `Álbum completo el ${fechaLarga(a.releaseDate)}` : null;
+  return h('div', { class: `hero news${a ? '' : ' noart'}` },
+    h('div', { class: 'txt' },
+      h('div', null, h('div', { class: 'eyebrow' }, 'Novedad'), h('h2', null, n.title),
+        n.body ? h('p', { class: 'news-body' }, n.body) : null,
+        sub ? h('div', { class: 'muted small', style: { 'margin-top': '6px' } }, sub) : null),
+      a ? h('a', { class: 'btn btn-primary', href: `#/album/${a.id}` }, icon('disc'), 'Ver álbum') : null),
+    a ? h('a', { class: 'art', href: `#/album/${a.id}`, 'aria-label': `Ver ${a.title}` }, cover(a, 'm')) : null);
+}
+
 export default async function home(ctx) {
   const [data, { artists }] = await Promise.all([get('/api/home'), get('/api/artists')]);
   const root = h('div', null, installBanner());
@@ -58,14 +73,20 @@ export default async function home(ctx) {
   }
 
   const f = data.featured;
-  root.append(h('div', { class: 'hero' },
+  for (const n of data.news || []) root.append(newsCard(n));
+  // Con una novedad arriba, el destacado se achica a una fila; sin novedades sigue grande como siempre.
+  if (data.news?.length) {
+    root.append(h('div', { class: 'feat-row' }, h('a', { href: `#/album/${f.id}`, 'aria-label': `Ver ${f.title}` }, cover(f, 's')),
+      h('div', { class: 'main' }, h('div', { class: 'eyebrow' }, 'Destacado'), h('div', { class: 't' }, f.title), h('div', { class: 's' }, `${f.artistName} · ${plural(f.trackCount, 'canción', 'canciones')}`)),
+      h('button', { class: 'icon-btn ring', 'aria-label': `Reproducir ${f.title}`, onclick: () => playAlbum(f.id) }, icon('play'))));
+  } else root.append(h('div', { class: 'hero' },
     h('div', { class: 'txt' },
       h('div', null, h('div', { class: 'eyebrow' }, 'Destacado'), h('h2', null, f.title), h('div', { class: 'muted small' }, `${f.artistName} · ${plural(f.trackCount, 'canción', 'canciones')}`)),
       h('button', { class: 'btn btn-primary', onclick: () => playAlbum(f.id) }, icon('play'), 'Reproducir')),
     h('a', { class: 'art', href: `#/album/${f.id}`, 'aria-label': `Ver ${f.title}` }, cover(f, 'm'))));
 
   if (data.continue.length) root.append(section('Continuar escuchando', hscroll(...data.continue.map(albumCard))));
-  root.append(section('Novedades', hscroll(...data.latest.map(albumCard)), { href: '#/lista/album', text: 'Ver todo' }));
+  root.append(section('Recién agregado', hscroll(...data.latest.map(albumCard)), { href: '#/lista/album', text: 'Ver todo' }));
 
   const mixes = [mixCard('Mezcla Búnker', `${data.counts.tracks} canciones`, { albumId: 0, hasCover: false }, playEverything)];
   for (const a of artists.slice(0, 6)) mixes.push(mixCard(`Mix ${a.name}`, plural(a.trackCount, 'canción', 'canciones'), { albumId: a.coverAlbumId ?? a.id, hasCover: !!a.coverAlbumId }, () => playArtist(a.id, { shuffle: true })));
