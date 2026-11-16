@@ -181,15 +181,16 @@ export function trackRow(track, { list, index, number, showCover = false, playli
   const lead = showCover ? cover(track, 's')
     : h('span', { class: 'num' }, h('span', { class: 'n' }, number ?? ''), h('span', { class: 'eq', hidden: true }, h('i'), h('i'), h('i')));
   const play = () => {
+    if (track.upcoming) { toast('Disponible pronto'); return; }
     if (track.ready === false) { toast('Esta canción se está preparando. Intenta en un momento.'); return; }
     player.playTracks(list || [track], list ? index : 0);
   };
-  const row = h('div', { class: `row tap${track.ready === false ? ' unready' : ''}`, dataset: { tid: String(track.id) } },
+  const row = h('div', { class: `row tap${track.upcoming ? ' upcoming' : track.ready === false ? ' unready' : ''}`, dataset: { tid: String(track.id) } },
     lead,
     h('button', { class: 'main', 'aria-label': `Reproducir ${track.title}`, onclick: (e) => { e.stopPropagation(); play(); } },
-      h('div', { class: 't' }, track.title), h('div', { class: 's' }, track.ready === false ? 'Preparando audio…' : (showCover ? `${track.artistName} · ${track.albumTitle}` : track.artistName))),
+      h('div', { class: 't' }, track.title), h('div', { class: 's' }, track.upcoming ? track.artistName : track.ready === false ? 'Preparando audio…' : (showCover ? `${track.artistName} · ${track.albumTitle}` : track.artistName))),
     track.duration ? h('span', { class: 'dur' }, fmtTime(track.duration)) : null,
-    h('button', { class: 'icon-btn', 'aria-label': `Más opciones de ${track.title}`, onclick: (e) => { e.stopPropagation(); openTrackMenu(track, { playlistId, onChange }); } }, icon('more')));
+    track.upcoming ? h('span', { class: 'icon-btn', 'aria-hidden': 'true' }) : h('button', { class: 'icon-btn', 'aria-label': `Más opciones de ${track.title}`, onclick: (e) => { e.stopPropagation(); openTrackMenu(track, { playlistId, onChange }); } }, icon('more')));
   row.addEventListener('click', play); // tocar el número, la carátula o la duración también reproduce
   markRow(row, cur, player.state().playing);
   return row;

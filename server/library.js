@@ -2,18 +2,19 @@
 import { norm } from './util.js';
 
 const TRACK_SQL = `SELECT t.id, t.title, t.track_no AS trackNo, t.duration, t.album_id AS albumId, al.title AS albumTitle, al.kind,
-  t.artist_id AS artistId, ar.name AS artistName, (t.audio_status = 'ok') AS ready, (al.cover_rel IS NOT NULL) AS hasCover,
+  t.artist_id AS artistId, ar.name AS artistName, (t.audio_status = 'ok') AS ready, (t.audio_status = 'upcoming') AS upcoming, (al.cover_rel IS NOT NULL) AS hasCover,
   al.cover_mtime AS coverV, EXISTS(SELECT 1 FROM favorites f WHERE f.user_id = ? AND f.track_id = t.id) AS fav
   FROM tracks t JOIN albums al ON al.id = t.album_id JOIN artists ar ON ar.id = t.artist_id
   WHERE t.missing = 0 AND al.missing = 0 AND ar.missing = 0`;
 
 const ALBUM_SQL = `SELECT al.id, al.title, al.kind, al.artist_id AS artistId, ar.name AS artistName,
   (al.cover_rel IS NOT NULL) AS hasCover, (al.back_rel IS NOT NULL) AS hasBack, al.cover_mtime AS coverV, al.back_mtime AS backV,
-  (SELECT COUNT(*) FROM tracks t WHERE t.album_id = al.id AND t.missing = 0) AS trackCount,
+  (SELECT COUNT(*) FROM tracks t WHERE t.album_id = al.id AND t.missing = 0 AND t.audio_status != 'upcoming') AS trackCount,
+  (SELECT COUNT(*) FROM tracks t WHERE t.album_id = al.id AND t.missing = 0) AS totalCount, al.release_date AS releaseDate,
   (SELECT COALESCE(SUM(t.duration), 0) FROM tracks t WHERE t.album_id = al.id AND t.missing = 0) AS duration
   FROM albums al JOIN artists ar ON ar.id = al.artist_id WHERE al.missing = 0 AND ar.missing = 0`;
 
-const fixTrack = (r) => ({ ...r, ready: !!r.ready, hasCover: !!r.hasCover, fav: !!r.fav });
+const fixTrack = (r) => ({ ...r, ready: !!r.ready, upcoming: !!r.upcoming, hasCover: !!r.hasCover, fav: !!r.fav });
 const fixAlbum = (r) => ({ ...r, hasCover: !!r.hasCover, hasBack: !!r.hasBack });
 const like = (s) => `%${s.replace(/[\\%_]/g, (c) => '\\' + c)}%`;
 
@@ -55,7 +56,7 @@ export function createLibraryQueries(db) {
       return {
         ...row, albums: list,
         trackCount: list.reduce((n, a) => n + a.trackCount, 0),
-        tracks: tracks(uid, 'AND t.artist_id = ?', [id], 'ORDER BY al.added_at DESC, COALESCE(al.order_no,0) DESC, COALESCE(t.track_no,1000000), t.title COLLATE NOCASE'),
+        tracks: tracks(uid, "AND t.artist_id = ? AND t.audio_status != 'upcoming'", [id], 'ORDER BY al.added_at DESC, COALESCE(al.order_no,0) DESC, COALESCE(t.track_no,1000000), t.title COLLATE NOCASE'),
       };
     },
 
@@ -72,7 +73,7 @@ export function createLibraryQueries(db) {
       const cond = (col) => tokens.map(() => `${col} LIKE ? ESCAPE '\\'`).join(' AND ');
       const p = tokens.map(like);
       return {
-        tracks: tracks(uid, `AND ${cond('t.search')}`, p, 'ORDER BY t.title COLLATE NOCASE LIMIT 30'),
+        tracks: tracks(uid, `AND t.audio_status != 'upcoming' AND ${cond('t.search')}`, p, 'ORDER BY t.title COLLATE NOCASE LIMIT 30'),
         albums: albums(`AND ${cond('al.search')}`, p, 'ORDER BY al.title COLLATE NOCASE LIMIT 20'),
         artists: db.prepare(`SELECT ar.id, ar.name,
           (SELECT al.id FROM albums al WHERE al.artist_id = ar.id AND al.missing = 0 AND al.cover_rel IS NOT NULL LIMIT 1) AS coverAlbumId

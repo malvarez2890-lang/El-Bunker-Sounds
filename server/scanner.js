@@ -15,6 +15,39 @@ const BACK_NAMES = new Set(['contraportada', 'contratapa', 'back', 'contracover'
 
 const collator = new Intl.Collator('es', { numeric: true, sensitivity: 'base' });
 
+const MONTHS = { enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6, julio: 7, agosto: 8, septiembre: 9, setiembre: 9, octubre: 10, noviembre: 11, diciembre: 12 };
+const pad2 = (n) => String(n).padStart(2, '0');
+/** "2026-11-21", "21/11/2026" o "21 de noviembre de 2026" → "2026-11-21" (o null). */
+export function parseDateText(text) {
+  const t = norm(text).trim();
+  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(t);
+  if (m) return `${m[1]}-${pad2(m[2])}-${pad2(m[3])}`;
+  m = /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/.exec(t);
+  if (m) return `${m[3]}-${pad2(m[2])}-${pad2(m[1])}`;
+  m = /^(\d{1,2})\s+de\s+([a-z]+)(?:\s+de(?:l)?\s+(\d{4}))?$/.exec(t);
+  if (m && MONTHS[m[2]]) return `${m[3] || new Date().getFullYear()}-${pad2(MONTHS[m[2]])}-${pad2(m[1])}`;
+  return null;
+}
+
+/**
+ * Lee un TRACKLIST.txt: una línea por canción ("01. Título"), y opcionalmente "Lanzamiento: 21 de noviembre de 2026".
+ * Las líneas vacías, las que empiezan con # y las que no tienen número se ignoran.
+ */
+export function parseTracklist(text) {
+  const entries = [];
+  let releaseDate = null;
+  for (const raw of String(text).replace(/^\uFEFF/, '').split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const kv = /^(lanzamiento|fecha|release)\s*[:=]\s*(.+)$/i.exec(line);
+    if (kv) { releaseDate = parseDateText(kv[2]) || releaseDate; continue; }
+    const m = /^(\d{1,3})\s*[.\-_)]\s*(.+)$/.exec(line);
+    if (m) entries.push({ no: Number(m[1]), title: nfc(m[2].trim()) });
+  }
+  return { entries, releaseDate };
+}
+const looseKey = (s) => norm(s).replace(/[^a-z0-9]+/g, '');
+
 /** "01. Título" → { no: 1, title: "Título" }.  "3.17" (sin espacio) no cuenta como número. */
 export function parseNumbered(name) {
   const m = /^\s*(\d{1,3})\s*(?:[.\-_)]\s+|\s-\s*)(.+?)\s*$/.exec(name);
@@ -66,7 +99,27 @@ async function readAlbumDir(root, relDir, kind, artistName) {
   // Orden: primero los que traen número, luego por nombre.
   tracks.sort((a, b) => (a.trackNo ?? 1e6) - (b.trackNo ?? 1e6) || collator.compare(a.title, b.title));
 
-  const release = { folderRel: relDir, kind, title, orderNo: no, artistName, tracks, coverRel: null, backRel: null };
+  // TRACKLIST.txt: canciones "por salir". Las que tienen archivo se escuchan; el resto aparece en gris ("disponible pronto").
+  let releaseDate = null;
+  const tl = files.find((f) => f.name.toLowerCase() === 'tracklist.txt');
+  if (tl) {
+    try {
+      const st = await fs.stat(path.join(abs, tl.name));
+      if (st.size <= 64 * 1024) {
+        const parsed = parseTracklist(await fs.readFile(path.join(abs, tl.name), 'utf8'));
+        releaseDate = parsed.releaseDate;
+        const taken = new Set();
+        for (const e of parsed.entries) {
+          const real = tracks.find((t) => !taken.has(t) && (t.trackNo === e.no || looseKey(t.title) === looseKey(e.title)));
+          if (real) { taken.add(real); real.title = e.title; real.trackNo = e.no; } // el título de la lista es el "oficial"
+          else tracks.push({ srcRel: path.join(relDir, `#por-salir-${pad2(e.no)}`), title: e.title, trackNo: e.no, upcoming: true });
+        }
+        tracks.sort((a, b) => (a.trackNo ?? 1e6) - (b.trackNo ?? 1e6) || collator.compare(a.title, b.title));
+      }
+    } catch { /* un TRACKLIST.txt ilegible se ignora */ }
+  }
+
+  const release = { folderRel: relDir, kind, title, orderNo: no, artistName, tracks, releaseDate, coverRel: null, backRel: null };
   if (front) {
     release.coverRel = path.join(relDir, front.name);
     release.coverMtime = (await statOf(path.join(root, release.coverRel))).mtime;
@@ -143,9 +196,9 @@ export async function scanLibrary({ db, config, log }) {
 
   const upArtist = db.prepare(`INSERT INTO artists(name, folder, search, seen, missing) VALUES(?,?,?,?,0)
     ON CONFLICT(folder) DO UPDATE SET name=excluded.name, search=excluded.search, seen=excluded.seen, missing=0 RETURNING id`);
-  const upAlbum = db.prepare(`INSERT INTO albums(artist_id,title,kind,folder,order_no,cover_rel,cover_mtime,back_rel,back_mtime,added_at,search,seen,missing)
-    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,0)
-    ON CONFLICT(folder) DO UPDATE SET artist_id=excluded.artist_id, title=excluded.title, kind=excluded.kind, order_no=excluded.order_no,
+  const upAlbum = db.prepare(`INSERT INTO albums(artist_id,title,kind,folder,order_no,cover_rel,cover_mtime,back_rel,back_mtime,added_at,search,seen,release_date,missing)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,0)
+    ON CONFLICT(folder) DO UPDATE SET artist_id=excluded.artist_id, title=excluded.title, kind=excluded.kind, order_no=excluded.order_no, release_date=excluded.release_date,
       cover_rel=excluded.cover_rel, cover_mtime=excluded.cover_mtime, back_rel=excluded.back_rel, back_mtime=excluded.back_mtime,
       search=excluded.search, seen=excluded.seen, missing=0 RETURNING id`);
   const upTrack = db.prepare(`INSERT INTO tracks(album_id,artist_id,title,track_no,src_rel,src_size,src_mtime,added_at,search,seen,missing)
@@ -157,6 +210,12 @@ export async function scanLibrary({ db, config, log }) {
       audio_error=CASE WHEN tracks.src_size IS NOT excluded.src_size OR tracks.src_mtime IS NOT excluded.src_mtime THEN NULL ELSE tracks.audio_error END,
       src_size=excluded.src_size, src_mtime=excluded.src_mtime`);
 
+  // Canciones "por salir" (sin archivo): estado 'upcoming'. Nunca se convierten ni suenan.
+  const upGhost = db.prepare(`INSERT INTO tracks(album_id,artist_id,title,track_no,src_rel,added_at,search,seen,audio_status,missing)
+    VALUES(?,?,?,?,?,?,?,?, 'upcoming', 0)
+    ON CONFLICT(src_rel) DO UPDATE SET album_id=excluded.album_id, artist_id=excluded.artist_id, title=excluded.title, track_no=excluded.track_no,
+      search=excluded.search, seen=excluded.seen, missing=0, audio_status='upcoming'`);
+
   let trackCount = 0;
   tx(db, () => {
     for (const artist of artists) {
@@ -164,9 +223,10 @@ export async function scanLibrary({ db, config, log }) {
       for (const r of artist.releases) {
         const albumId = upAlbum.get(
           artistId, r.title, r.kind, rel(r.folderRel), r.orderNo, rel(r.coverRel), r.coverMtime ?? null,
-          rel(r.backRel), r.backMtime ?? null, ts, norm(`${r.title} ${artist.name}`), scanId,
+          rel(r.backRel), r.backMtime ?? null, ts, norm(`${r.title} ${artist.name}`), scanId, r.releaseDate ?? null,
         ).id;
         for (const t of r.tracks) {
+          if (t.upcoming) { upGhost.run(albumId, artistId, t.title, t.trackNo, rel(t.srcRel), ts, norm(`${t.title} ${artist.name} ${r.title}`), scanId); continue; }
           upTrack.run(albumId, artistId, t.title, t.trackNo, rel(t.srcRel), t.size, t.mtime, ts,
             norm(`${t.title} ${artist.name} ${r.title}`), scanId);
           trackCount++;

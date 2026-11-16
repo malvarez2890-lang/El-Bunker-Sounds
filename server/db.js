@@ -100,6 +100,10 @@ const MIGRATIONS = [
   );
   CREATE INDEX plays_user ON plays(user_id, played_at DESC);
   `,
+  // 2: álbumes con canciones "por salir" (fecha del lanzamiento completo)
+  `
+  ALTER TABLE albums ADD COLUMN release_date TEXT;
+  `,
 ];
 
 export function openDb(dataDir) {
