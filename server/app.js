@@ -69,8 +69,6 @@ export async function buildApp(config, { logger = true } = {}) {
           lastScan = { at: Date.now(), ...(await scanLibrary({ db, config, log })) };
           transcoder.kick();
           transcoder.cleanup().catch(() => {});
-          onkyo.cleanup()?.catch?.(() => {});
-          onkyo.prepare();
         } catch (err) {
           lastScan = { at: Date.now(), error: err.message };
           log.error({ err: err.message }, 'falló el escaneo');

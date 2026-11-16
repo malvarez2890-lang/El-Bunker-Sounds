@@ -8,7 +8,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { safeJoin } from './safe-path.js';
-import { createMp3Cache } from './media.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const esc = (s) => String(s ?? '').replace(/[<>&'"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' }[c]));
@@ -144,8 +143,9 @@ export function createOnkyo({ config, db, lib, log, transcoder }) {
     }
   }
   const sign = (payload) => b64u(crypto.createHmac('sha256', secret).update(payload).digest()).slice(0, 32);
-  const MIME = { m4a: 'audio/mp4', wav: 'audio/wav', mp3: 'audio/mpeg' };
-  const mp3 = cfg.format === 'mp3' ? createMp3Cache({ db, config, log, transcoder }) : null;
+  const MIME = { wav: 'audio/wav', mp3: 'audio/mpeg' };
+  // Con MP3, el Onkyo recibe la MISMA copia que usa el teléfono (la hace el conversor; las pedidas para sonar ya pasan adelante).
+  const mp3 = cfg.format === 'mp3' ? { ensure: (id) => transcoder.ensureMp3(id), prefetch: (id) => transcoder.prefetchMp3(id), pathIfReady: (id) => transcoder.mp3PathIfReady(id) } : null;
 
   /** Enlace temporal para una canción. */
   function mintUrl(trackId, ttlSec = cfg.linkTtlSec) {
@@ -181,7 +181,7 @@ export function createOnkyo({ config, db, lib, log, transcoder }) {
   const lan = http.createServer((req, res) => {
     const fail = (code) => { res.writeHead(code, { 'content-type': 'text/plain' }); res.end(); };
     if (req.method !== 'GET' && req.method !== 'HEAD') return fail(405);
-    const m = /^\/onkyo\/([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\.(m4a|wav|mp3)$/.exec((req.url || '').split('?')[0]);
+    const m = /^\/onkyo\/([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\.(wav|mp3)$/.exec((req.url || '').split('?')[0]);
     if (!m) return fail(404);
     const id = verify(m[1], m[2]);
     const file = id != null ? fileFor(id, m[2]) : null;
@@ -470,8 +470,8 @@ export function createOnkyo({ config, db, lib, log, transcoder }) {
     S.state = 'idle'; S.queue = []; S.index = -1; stopPolling();
     return { power: false };
   };
-  out.prepare = () => mp3?.prepareAll();
-  out.cleanup = () => mp3?.cleanup();
+  out.prepare = () => {};
+  out.cleanup = () => {};
   out.close = () => { stopPolling(); lan.close(); lan.closeAllConnections?.(); };
   return out;
 }

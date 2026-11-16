@@ -66,10 +66,11 @@ export async function admin(ctx) {
   async function loadLib() {
     const s = await get('/api/admin/library');
     const total = s.ok + s.pending + s.error;
-    const busy = s.scanning || s.pending > 0;
+    const busy = s.scanning || s.pending > 0 || s.legacy > 0;
     fill(libBox,
       h('div', { class: 'stat' }, h('div', null, h('b', null, String(s.ok)), h('span', null, 'Listas')), h('div', { class: s.pending ? 'hot' : '' }, h('b', null, String(s.pending)), h('span', null, 'Convirtiendo')), h('div', null, h('b', null, String(s.error)), h('span', null, 'Con error'))),
       total ? h('div', { class: 'progress', role: 'progressbar', 'aria-valuenow': String(s.ok), 'aria-valuemax': String(total) }, h('i', { style: { '--p': String(s.ok / total) } })) : null,
+      s.legacy ? h('div', { class: 'muted small', style: { 'margin-bottom': '6px' } }, `Pasando ${s.legacy} canciones a MP3 (siguen sonando mientras tanto).`) : null,
       h('div', { class: 'muted small' }, s.lastScan ? (s.lastScan.error ? `Último escaneo con error: ${s.lastScan.error}` : `Última búsqueda: ${s.lastScan.tracks} canciones de ${plural(s.lastScan.artists, 'artista', 'artistas')} (${ago(Math.floor(s.lastScan.at / 1000))})`) : 'Aún no se ha buscado música.'),
       h('div', { style: { display: 'flex', gap: '10px', 'margin-top': '12px', 'flex-wrap': 'wrap' } },
         h('button', { class: 'btn btn-primary btn-sm', disabled: s.scanning, onclick: async () => { try { await post('/api/admin/scan'); toast('Buscando música nueva…'); setTimeout(loadLib, 800); } catch (e) { toast(errorText(e)); } } }, icon('refresh'), s.scanning ? 'Buscando…' : 'Buscar música nueva'),

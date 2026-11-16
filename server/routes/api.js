@@ -55,7 +55,7 @@ export default async function apiRoutes(app, { auth, config, lib, db, covers }) 
     let size;
     try { size = fs.statSync(file).size; } catch { return notFound(reply); }
 
-    reply.header('Content-Type', 'audio/mp4').header('Accept-Ranges', 'bytes').header('Cache-Control', 'private, max-age=3600');
+    reply.header('Content-Type', file.endsWith('.mp3') ? 'audio/mpeg' : 'audio/mp4').header('Accept-Ranges', 'bytes').header('Cache-Control', 'private, max-age=3600');
     const range = req.headers.range;
     if (!range) return reply.header('Content-Length', size).send(fs.createReadStream(file));
     const m = /^bytes=(\d*)-(\d*)$/.exec(range);

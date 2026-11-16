@@ -38,7 +38,7 @@ describe('servidor', () => {
   });
   after(() => t.close());
 
-  test('el escáner entiende la estructura y convierte todo a M4A', async () => {
+  test('el escáner entiende la estructura y convierte todo a MP3', async () => {
     const lib = t.ctx.library.lastScan();
     assert.equal(lib.artists, 2);
     assert.equal(lib.tracks, 46);
@@ -46,7 +46,7 @@ describe('servidor', () => {
     assert.equal(st.ok, 46, JSON.stringify(st));
     assert.equal(st.error, 0);
     assert.equal(st.pending, 0);
-    const files = fs.readdirSync(path.join(t.dataDir, 'audio')).filter((f) => f.endsWith('.m4a'));
+    const files = fs.readdirSync(path.join(t.dataDir, 'audio')).filter((f) => f.endsWith('.mp3'));
     assert.equal(files.length, 46);
   });
 
@@ -115,7 +115,7 @@ describe('servidor', () => {
     const id = tracks[0].id;
     const full = await F('GET', `/api/stream/${id}`);
     assert.equal(full.statusCode, 200);
-    assert.equal(full.headers['content-type'], 'audio/mp4');
+    assert.equal(full.headers['content-type'], 'audio/mpeg');
     assert.equal(full.headers['accept-ranges'], 'bytes');
     const size = full.rawPayload.length;
     assert.ok(size > 1000);
@@ -127,8 +127,9 @@ describe('servidor', () => {
     assert.equal(tail.rawPayload.length, 50);
     const bad = await F('GET', `/api/stream/${id}`, undefined, { range: `bytes=${size + 10}-` });
     assert.equal(bad.statusCode, 416);
-    // el archivo M4A es un M4A de verdad
-    assert.equal(full.rawPayload.subarray(4, 8).toString(), 'ftyp');
+    // el archivo es un MP3 de verdad (empieza con la etiqueta ID3 o con un cuadro MPEG)
+    const head = full.rawPayload.subarray(0, 3);
+    assert.ok(head.toString() === 'ID3' || (head[0] === 0xff && (head[1] & 0xe0) === 0xe0), `cabecera rara: ${head.toString('hex')}`);
   });
 
   test('stream y carátulas: ids raros y rutas con ../ no sirven nada', async () => {
@@ -241,6 +242,29 @@ describe('servidor', () => {
     assert.equal(r.headers['x-content-type-options'], 'nosniff');
     assert.equal(r.json().google, false);
     assert.equal((await t.app.inject({ method: 'GET', url: '/api/auth/google/start' })).statusCode, 404);
+  });
+
+  test('canciones viejas en M4A siguen sonando y se pasan solas a MP3 (aprovechando copias MP3 ya hechas)', async () => {
+    const dir = path.join(t.dataDir, 'audio');
+    const id = 3;
+    const row = t.ctx.db.prepare('SELECT audio_file, src_mtime AS m FROM tracks WHERE id=?').get(id);
+    assert.match(row.audio_file, /\.mp3$/);
+    // se deja la canción como estaba en la versión anterior: copia M4A (suena con tipo audio/mp4) y el MP3 solo en la carpeta vieja
+    fs.copyFileSync(path.join(dir, row.audio_file), path.join(dir, `${id}-${row.m}.m4a`));
+    fs.mkdirSync(path.join(t.dataDir, 'onkyo-mp3'), { recursive: true });
+    fs.renameSync(path.join(dir, row.audio_file), path.join(t.dataDir, 'onkyo-mp3', row.audio_file));
+    t.ctx.db.prepare('UPDATE tracks SET audio_file=? WHERE id=?').run(`${id}-${row.m}.m4a`, id);
+    assert.equal(t.ctx.transcoder.status().legacy, 1);
+    const old = await A('GET', `/api/stream/${id}`);
+    assert.equal(old.statusCode, 200);
+    assert.equal(old.headers['content-type'], 'audio/mp4'); // sigue sonando mientras tanto
+    t.ctx.transcoder.kick();
+    await t.ctx.transcoder.whenIdle();
+    assert.equal(t.ctx.transcoder.status().legacy, 0);
+    assert.equal(t.ctx.db.prepare('SELECT audio_file FROM tracks WHERE id=?').get(id).audio_file, row.audio_file);
+    assert.equal(fs.existsSync(path.join(t.dataDir, 'onkyo-mp3', row.audio_file)), false, 'la copia vieja se reutilizó (se movió)');
+    const now = await A('GET', `/api/stream/${id}`);
+    assert.equal(now.headers['content-type'], 'audio/mpeg');
   });
 
   test('versión de la app: pública, corta y estable', async () => {

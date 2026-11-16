@@ -22,7 +22,7 @@ export function loadConfig(overrides = {}) {
       .map((s) => s.trim().toLowerCase())
       .filter(Boolean),
     sessionDays: Number(e.SESSION_DAYS || 90),
-    aacBitrate: e.AAC_BITRATE || '256k',
+    mp3Bitrate: e.MP3_BITRATE || '320k',
     scanIntervalMin: Number(e.SCAN_INTERVAL_MIN ?? 15),
     mail: {
       mode: e.MAIL_MODE || (e.SMTP_USER ? 'smtp' : 'file'), // 'smtp' | 'file'
@@ -47,7 +47,7 @@ export function loadConfig(overrides = {}) {
       eiscpPort: Number(e.ONKYO_EISCP_PORT || 60128),
       upnpPort: Number(e.ONKYO_UPNP_PORT || 8888),
       descPath: e.ONKYO_DESC_PATH || '/upnp_descriptor_0',
-      format: ['m4a', 'wav', 'mp3'].includes(String(e.ONKYO_FORMAT || '').toLowerCase()) ? String(e.ONKYO_FORMAT).toLowerCase() : 'mp3',
+      format: /^wav$/i.test(e.ONKYO_FORMAT || '') ? 'wav' : 'mp3', // mp3 = la misma copia que usa el teléfono; wav = los originales
       maxVolume: Math.min(80, Math.max(1, Number(e.ONKYO_MAX_VOLUME || 50))), // tope de seguridad (el TX-8130 llega a 80)
       secret: e.ONKYO_SECRET || '',
       linkTtlSec: Number(e.ONKYO_LINK_TTL || 1800),

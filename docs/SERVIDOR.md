@@ -115,7 +115,7 @@ y corre `./scripts/sincronizar-musica.sh`. Cada vez que agregues canciones en On
 
 > Alternativa: instalar Tailscale en tu PC y copiar con `scp` o WinSCP. Dime si prefieres esa.
 
-Espacio aproximado: tus WAV + unas 5 veces menos en copias M4A (3 GB → ~0.6 GB extra). Revisa con `df -h`.
+Espacio aproximado: tus WAV + unas 4 veces menos en copias MP3 (3 GB → ~0.8 GB extra). Revisa con `df -h`.
 
 ## 7. Encender la app
 
@@ -153,7 +153,7 @@ Solo para ti (administrador). En el reproductor aparece un botón **Onkyo**: eli
 2. Actualiza: `./actualizar.sh` (reinicia el nodo de Tailscale unos segundos).
 3. Abre la app, reproduce algo, abre el reproductor y toca **Onkyo → Enviar lo que suena al Onkyo**.
 
-Al Onkyo se le manda **MP3 de 320k** (el formato que todos los Onkyo leen bien). La app crea esas copias sola, una vez, en segundo plano y con prioridad baja; la primera vez que mandas una canción puede tardar unos segundos extra. Para mandar los WAV originales en vez de MP3, agrega `ONKYO_FORMAT=wav` al `.env`.
+Toda la música (teléfono y Onkyo) usa **MP3 de 320k**: la app crea esa copia sola, una vez, en segundo plano y con prioridad baja, y es el formato que todos los Onkyo leen bien. Si venías de la versión con M4A, las canciones se pasan a MP3 solas poco a poco (siguen sonando mientras tanto) y después se borran los M4A viejos; tus WAV nunca se tocan. En Administración ves el avance. Para mandar los WAV originales en vez de MP3, agrega `ONKYO_FORMAT=wav` al `.env`.
 
 Cómo funciona: la app le dice al Onkyo "baja esta canción de este enlace" y el Onkyo la pide a tu servidor por el puerto 8099 (solo red de casa). Cada enlace es temporal (30 min) y firmado: sirve para **una** canción y nada más. Las cámaras (puerto 443) no se tocan.
 

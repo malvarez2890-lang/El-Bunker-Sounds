@@ -30,7 +30,7 @@ describe('Onkyo (equipo simulado)', () => {
     fake = await startFakeOnkyo();
     lanPort = await freePort();
     t = await makeApp({
-      ONKYO_IP: '127.0.0.1', ONKYO_LAN_IP: '127.0.0.1', ONKYO_LAN_PORT: String(lanPort), ONKYO_LAN_HOST: '127.0.0.1', ONKYO_FORMAT: 'm4a',
+      ONKYO_IP: '127.0.0.1', ONKYO_LAN_IP: '127.0.0.1', ONKYO_LAN_PORT: String(lanPort), ONKYO_LAN_HOST: '127.0.0.1', 
       ONKYO_EISCP_PORT: String(fake.eiscpPort), ONKYO_UPNP_PORT: String(fake.upnpPort),
       ONKYO_END_SLACK: '2', ONKYO_POLL_MS: '150', ONKYO_RETRY_MS: '50', ONKYO_BOOT_WAIT_MS: '100', ONKYO_INPUT_WAIT_MS: '50', ONKYO_MAX_VOLUME: '50',
     });
@@ -68,8 +68,8 @@ describe('Onkyo (equipo simulado)', () => {
     assert.equal(fake.log.filter((c) => c === 'AV:Play').length, 2); // reintentó
     const f = fake.av.fetched[0];
     assert.equal(f.status, 206);
-    assert.equal(f.type, 'audio/mp4');
-    assert.match(f.uri, new RegExp(`^http://127\\.0\\.0\\.1:${lanPort}/onkyo/[\\w-]+\\.[\\w-]+\\.m4a$`));
+    assert.equal(f.type, 'audio/mpeg');
+    assert.match(f.uri, new RegExp(`^http://127\\.0\\.0\\.1:${lanPort}/onkyo/[\\w-]+\\.[\\w-]+\\.mp3$`));
     const trackFile = fs.readdirSync(path.join(t.dataDir, 'audio'));
     assert.ok(f.bytes > 1000 && trackFile.length > 0);
     assert.match(decodeURIComponent(fake.av.meta.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')), /object\.item\.audioItem\.musicTrack/);
@@ -254,20 +254,19 @@ describe('Onkyo con MP3 (formato por defecto)', () => {
     assert.match(f.uri, /\.mp3$/);
     assert.equal(f.type, 'audio/mpeg');
     assert.equal(f.status, 206);
-    const dir = path.join(t.dataDir, 'onkyo-mp3');
+    const dir = path.join(t.dataDir, 'audio'); // el Onkyo recibe la MISMA copia que el teléfono
     const first = fs.readdirSync(dir).filter((x) => x.endsWith('.mp3'));
     assert.ok(first.length >= 1);
+    assert.ok(!fs.existsSync(path.join(t.dataDir, 'onkyo-mp3')) || fs.readdirSync(path.join(t.dataDir, 'onkyo-mp3')).length === 0, 'ya no se hace una segunda copia');
     const probe = JSON.parse((await import('node:child_process')).execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_name,sample_rate,channels,bit_rate', '-of', 'json', path.join(dir, first[0])]).toString());
     assert.equal(probe.streams[0].codec_name, 'mp3');
     assert.equal(probe.streams[0].sample_rate, '44100');
     assert.equal(probe.streams[0].channels, 2);
     assert.ok(Number(probe.streams[0].bit_rate) > 300000);
     assert.ok(f.bytes > 5000);
-    // la siguiente canción de la cola ya se está preparando
-    await until(() => fs.readdirSync(dir).filter((x) => x.endsWith('.mp3')).length >= 2, 15000);
     // el enlace de un MP3 no sirve con otra extensión
     const good = new URL(fake.av.uri);
-    assert.equal((await fetch(`http://127.0.0.1:${lanPort}${good.pathname.replace(/\.mp3$/, '.m4a')}`)).status, 403);
+    assert.equal((await fetch(`http://127.0.0.1:${lanPort}${good.pathname.replace(/\.mp3$/, '.wav')}`)).status, 403);
   });
 });
 
@@ -318,8 +317,8 @@ describe('Onkyo: preparar el MP3 no cuelga la petición, y los fallos se explica
 
   test('si no se puede preparar el MP3, la app lo dice (no solo "problema del servidor")', async () => {
     t.ctx.db.prepare("UPDATE tracks SET src_rel='no-existe.wav' WHERE id=?").run(ids[0]);
-    const dir = path.join(t.dataDir, 'onkyo-mp3');
-    for (const f of fs.readdirSync(dir)) if (f.startsWith(`${ids[0]}-`)) fs.unlinkSync(path.join(dir, f)); // sin copia ya hecha
+    t.ctx.db.prepare("UPDATE tracks SET audio_file='viejo.m4a' WHERE id=?").run(ids[0]); // como si aún estuviera solo en M4A (sin MP3 hecho)
+    for (const f of fs.readdirSync(path.join(t.dataDir, 'audio'))) if (f.startsWith(`${ids[0]}-`)) fs.unlinkSync(path.join(t.dataDir, 'audio', f));
     await sleep(600); // que termine cualquier trabajo anterior
     await A('POST', '/api/onkyo/control', { action: 'stop' });
     await sleep(300);

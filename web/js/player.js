@@ -168,7 +168,7 @@ function entryFor(t) {
   e = { controller, url: null, promise: null };
   e.promise = fetch(streamUrl(t.id), { credentials: 'same-origin', signal: controller.signal })
     .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.blob(); })
-    .then((b) => { e.url = URL.createObjectURL(b.type === 'audio/mp4' ? b : new Blob([b], { type: 'audio/mp4' })); log('descarga lista', `id=${t.id} ${(b.size / 1048576).toFixed(1)}MB`); return e.url; });
+    .then((b) => { e.url = URL.createObjectURL(b.type ? b : new Blob([b], { type: 'audio/mpeg' })); log('descarga lista', `id=${t.id} ${(b.size / 1048576).toFixed(1)}MB`); return e.url; });
   e.promise.catch((err) => { if (cache.get(t.id) === e) cache.delete(t.id); log('descarga falló', `id=${t.id} ${err.message}`); });
   cache.set(t.id, e);
   return e;
