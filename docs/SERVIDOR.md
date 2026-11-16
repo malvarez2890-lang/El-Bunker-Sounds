@@ -159,6 +159,23 @@ Cómo funciona: la app le dice al Onkyo "baja esta canción de este enlace" y el
 
 Si no suena: `docker compose logs --tail=80 app | grep -i onkyo`. Si el Onkyo no pide la canción y tienes `ufw` activo: `sudo ufw allow from 192.168.100.10 to any port 8099 proto tcp`.
 
+## 11. Álbumes con canciones "por salir", novedades y avisos
+
+**Álbum con solo algunas canciones listas** (como Spotify): en la carpeta del álbum agrega un archivo `TRACKLIST.txt` con la lista completa, una canción por línea, con su número. Por ejemplo:
+
+```
+Lanzamiento: 21 de noviembre de 2026
+01. Pronti, Via!
+02. Il Re del Bar
+03. Tutto Sotto Controllo
+```
+
+Las canciones que tienen su WAV en la carpeta se escuchan; las demás aparecen en gris, y al tocarlas la app dice "Disponible pronto". Cuando llegue un WAV nuevo (por ejemplo `01. Pronti, Via!.wav`), esa canción **pasa sola de gris a escuchable**. Cuando estén todas, puedes borrar el `TRACKLIST.txt`.
+
+**Novedades:** en Administración → Novedades → "Nueva novedad" (título, texto corto, álbum que se abre al tocar). Aparece arriba en Inicio para todos. Puedes ocultarla o borrarla cuando quieras.
+
+**Avisos al celular:** cada persona los activa una vez (menú del perfil → "Activar avisos de novedades", o el botón "Avísame" de la novedad). En iPhone hace falta iOS 16.4 o más nuevo y la app instalada en la pantalla de inicio. Tú puedes mandar un aviso al guardar una novedad (casilla "Enviar aviso al celular de todos"), probarlo en tu celular ("Probar en mi celular") y activar el aviso automático cuando llegue música nueva. Es gratis y no usa ninguna app extra.
+
 ## Si algo falla
 
 | Síntoma | Qué mirar |

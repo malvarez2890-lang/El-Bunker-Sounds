@@ -4,6 +4,7 @@ import { createRouter, bump, TABS } from './router.js';
 import { openSheet, promptText, toast, errorState, go } from './ui.js';
 import * as player from './player.js';
 import { initVersion, checkForUpdate, appVersion } from './version.js';
+import { pushState, enablePush, disablePush, syncPush, PUSH_HELP } from './push.js';
 import { mountMini } from './playerui.js';
 import { setOnkyoAvailable, resyncOnkyo, onkyoPref } from './onkyoui.js';
 import { renderGate, renderPending, renderBlocked } from './views/gate.js';
@@ -59,6 +60,7 @@ async function boot() {
   if (me.status === 'pending') { renderPending(app, me, { onRefresh: boot, onLogout: logout }); return; }
   if (me.status !== 'active') { renderBlocked(app, { onLogout: logout }); return; }
   setOnkyoAvailable(me.onkyo);
+  syncPush();
   renderShell(me);
 }
 
@@ -96,7 +98,8 @@ function renderShell(me) {
   if (me.onkyo && onkyoPref()) player.holdPlays(back); // mientras tanto, lo que pongas espera (no suena primero el teléfono)
 }
 
-function openProfile(me, avatar) {
+async function openProfile(me, avatar) {
+  const ps = await pushState();
   openSheet((box, o) => {
     const item = (ico, label, fn, cls = '') => h('button', { class: `menu-item ${cls}`.trim(), onclick: () => { o.close(); fn(); } }, icon(ico), label);
     const pending = Number(avatar.dataset.pending || 0);
@@ -107,6 +110,11 @@ function openProfile(me, avatar) {
           const name = await promptText({ title: 'Tu nombre', value: me.name, maxLength: 40 });
           if (!name) return;
           try { await patch('/api/me', { name }); me.name = name; boot(); } catch (e) { toast(errorText(e)); }
+        }),
+        item('bell', ps === 'on' ? 'Avisos de novedades: activados' : 'Activar avisos de novedades', async () => {
+          if (ps === 'on') { await disablePush(); toast('Avisos desactivados'); return; }
+          if (PUSH_HELP[ps]) { toast(PUSH_HELP[ps]); return; }
+          try { toast((await enablePush()) === 'on' ? 'Avisos activados' : PUSH_HELP.denied); } catch (e) { toast(errorText(e)); }
         }),
         me.isAdmin ? item('shield', pending ? `Administración (${pending} pendiente${pending === 1 ? '' : 's'})` : 'Administración', () => go('#/admin')) : null,
         item('logout', 'Cerrar sesión', logout, 'danger'),

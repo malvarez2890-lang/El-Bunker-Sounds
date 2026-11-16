@@ -92,16 +92,17 @@ export async function admin(ctx) {
       const sel = h('select', { class: 'field', 'aria-label': 'Álbum que se abre al tocar' },
         h('option', { value: '' }, 'Sin álbum'), ...albums.map((a) => h('option', { value: String(a.id), selected: item?.album?.id === a.id }, `${a.artistName} · ${a.title}`)));
       const active = h('input', { type: 'checkbox', checked: item ? !!item.active : true });
+      const notify = h('input', { type: 'checkbox', checked: !item }); // por defecto, las novedades nuevas se avisan al celular
       const save = async () => {
         if (!title.value.trim()) { toast('Escribe un título.'); return; }
-        const payload = { title: title.value, body: body.value, albumId: sel.value ? Number(sel.value) : null, active: active.checked };
+        const payload = { title: title.value, body: body.value, albumId: sel.value ? Number(sel.value) : null, active: active.checked, notify: notify.checked };
         try {
-          await post(item ? `/api/admin/news/${item.id}` : '/api/admin/news', payload);
-          o.close(); toast('Novedad guardada'); loadNews();
+          const r = await post(item ? `/api/admin/news/${item.id}` : '/api/admin/news', payload);
+          o.close(); toast(r.push ? `Novedad guardada · aviso enviado a ${r.push.sent} celular${r.push.sent === 1 ? '' : 'es'}` : 'Novedad guardada'); loadNews();
         } catch (e) { toast(errorText(e)); }
       };
       box.append(h('h3', null, item ? 'Editar novedad' : 'Nueva novedad'), title, h('div', { style: { height: '10px' } }), body,
-        h('div', { style: { height: '10px' } }), sel, h('label', { class: 'check' }, active, 'Mostrar en Inicio'),
+        h('div', { style: { height: '10px' } }), sel, h('label', { class: 'check' }, active, 'Mostrar en Inicio'), h('label', { class: 'check' }, notify, 'Enviar aviso al celular de todos'),
         h('div', { class: 'btns', style: { 'margin-top': '16px' } }, h('button', { class: 'btn btn-ghost', onclick: () => o.close() }, 'Cancelar'), h('button', { class: 'btn btn-primary', onclick: save }, 'Guardar')));
     });
   }
@@ -114,7 +115,22 @@ export async function admin(ctx) {
         h('button', { class: 'icon-btn', 'aria-label': n.active ? `Ocultar ${n.title}` : `Mostrar ${n.title}`, onclick: async () => { try { await post(`/api/admin/news/${n.id}`, { active: !n.active }); loadNews(); } catch (e) { toast(errorText(e)); } } }, icon(n.active ? 'close' : 'check')),
         h('button', { class: 'icon-btn', 'aria-label': `Borrar ${n.title}`, onclick: async () => { if (await confirmDialog({ title: 'Borrar novedad', text: `“${n.title}” dejará de verse.`, confirm: 'Borrar', danger: true })) { try { await del(`/api/admin/news/${n.id}`); loadNews(); } catch (e) { toast(errorText(e)); } } } }, icon('trash'))))
         : [h('div', { class: 'muted small', style: { margin: '4px 0 10px' } }, 'Todavía no hay novedades. Aparecen arriba en Inicio para todos.')]),
-      h('button', { class: 'btn btn-secondary btn-sm', style: { 'margin-top': '10px' }, onclick: () => openNewsForm(null) }, icon('plus'), 'Nueva novedad'));
+      h('button', { class: 'btn btn-secondary btn-sm', style: { 'margin-top': '10px' }, onclick: () => openNewsForm(null) }, icon('plus'), 'Nueva novedad'),
+      pushBox);
+    loadPush();
+  }
+  // ---- avisos al celular ----
+  const pushBox = h('div', { style: { 'margin-top': '18px' } });
+  async function loadPush() {
+    const p = await get('/api/admin/push');
+    const auto = h('input', { type: 'checkbox', checked: p.autoNewMusic });
+    auto.addEventListener('change', async () => { try { await post('/api/admin/push/settings', { autoNewMusic: auto.checked }); toast(auto.checked ? 'Avisaré cuando llegue música nueva' : 'Sin avisos automáticos'); } catch (e) { toast(errorText(e)); auto.checked = !auto.checked; } });
+    fill(pushBox,
+      h('div', { class: 'muted small' }, p.devices ? `${plural(p.devices, 'celular', 'celulares')} de ${plural(p.people, 'persona', 'personas')} reciben avisos.` : 'Nadie ha activado los avisos todavía. Cada persona lo hace desde su perfil (la letra de arriba a la derecha) o con el botón “Avísame”.'),
+      h('label', { class: 'check' }, auto, 'Avisar solo cuando llegue música nueva'),
+      h('button', { class: 'btn btn-secondary btn-sm', style: { 'margin-top': '10px' }, onclick: async () => {
+        try { const { result } = await post('/api/admin/push/test'); toast(result.sent ? 'Aviso de prueba enviado a tu celular' : 'Tu celular no tiene los avisos activados (actívalos en tu perfil).'); } catch (e) { toast(errorText(e)); }
+      } }, icon('bell'), 'Probar en mi celular'));
   }
 
   await Promise.all([loadUsers(), loadLib(), loadNews()]);

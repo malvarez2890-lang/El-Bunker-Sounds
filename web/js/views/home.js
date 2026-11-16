@@ -1,6 +1,7 @@
 import { h, icon, plural, fill } from '../dom.js';
-import { get } from '../api.js';
-import { cover, albumCard, section, hscroll, emptyState, go } from '../ui.js';
+import { get, errorText } from '../api.js';
+import { pushState, enablePush, PUSH_HELP } from '../push.js';
+import { cover, albumCard, section, hscroll, emptyState, go, toast } from '../ui.js';
 import { playAlbum, playArtist, playEverything } from '../actions.js';
 
 const isStandalone = () => navigator.standalone || matchMedia('(display-mode: standalone)').matches;
@@ -55,8 +56,21 @@ function newsCard(n) {
       h('div', null, h('div', { class: 'eyebrow' }, 'Novedad'), h('h2', null, n.title),
         n.body ? h('p', { class: 'news-body' }, n.body) : null,
         sub ? h('div', { class: 'muted small', style: { 'margin-top': '6px' } }, sub) : null),
-      a ? h('a', { class: 'btn btn-primary', href: `#/album/${a.id}` }, icon('disc'), 'Ver álbum') : null),
+      h('div', null, a ? h('a', { class: 'btn btn-primary', href: `#/album/${a.id}` }, icon('disc'), 'Ver álbum') : null, remindButton())),
     a ? h('a', { class: 'art', href: `#/album/${a.id}`, 'aria-label': `Ver ${a.title}` }, cover(a, 'm')) : null);
+}
+
+/** Botón "Avísame" (solo si los avisos están apagados y se pueden activar): un toque y listo. */
+function remindButton() {
+  const slot = h('span');
+  pushState().then((ps) => {
+    if (ps === 'on' || ps === 'unsupported') return;
+    slot.append(h('button', { class: 'btn btn-secondary btn-sm', style: { 'margin-top': '10px' }, onclick: async (e) => {
+      if (PUSH_HELP[ps]) { toast(PUSH_HELP[ps]); return; }
+      try { const r = await enablePush(); if (r === 'on') { toast('Listo: te avisaremos'); e.target.closest('span')?.remove(); } else toast(PUSH_HELP.denied); } catch (err) { toast(errorText(err)); }
+    } }, icon('bell'), 'Avísame'));
+  }).catch(() => {});
+  return slot;
 }
 
 export default async function home(ctx) {

@@ -201,8 +201,8 @@ export async function scanLibrary({ db, config, log }) {
     ON CONFLICT(folder) DO UPDATE SET artist_id=excluded.artist_id, title=excluded.title, kind=excluded.kind, order_no=excluded.order_no, release_date=excluded.release_date,
       cover_rel=excluded.cover_rel, cover_mtime=excluded.cover_mtime, back_rel=excluded.back_rel, back_mtime=excluded.back_mtime,
       search=excluded.search, seen=excluded.seen, missing=0 RETURNING id`);
-  const upTrack = db.prepare(`INSERT INTO tracks(album_id,artist_id,title,track_no,src_rel,src_size,src_mtime,added_at,search,seen,missing)
-    VALUES(?,?,?,?,?,?,?,?,?,?,0)
+  const upTrack = db.prepare(`INSERT INTO tracks(album_id,artist_id,title,track_no,src_rel,src_size,src_mtime,added_at,search,seen,missing,announced)
+    VALUES(?,?,?,?,?,?,?,?,?,?,0,0)
     ON CONFLICT(src_rel) DO UPDATE SET album_id=excluded.album_id, artist_id=excluded.artist_id, title=excluded.title, track_no=excluded.track_no,
       search=excluded.search, seen=excluded.seen, missing=0,
       audio_status=CASE WHEN tracks.src_size IS NOT excluded.src_size OR tracks.src_mtime IS NOT excluded.src_mtime THEN 'pending' ELSE tracks.audio_status END,

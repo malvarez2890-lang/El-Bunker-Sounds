@@ -59,6 +59,11 @@ export function loadConfig(overrides = {}) {
       bootWaitMs: Number(e.ONKYO_BOOT_WAIT_MS || 1500),
       inputWaitMs: Number(e.ONKYO_INPUT_WAIT_MS || 2500),
     },
+    // Avisos al celular (Web Push). Las claves se generan solas y se guardan en /data; aquí solo el "asunto" que exige el estándar.
+    push: {
+      subject: e.VAPID_SUBJECT || (e.SMTP_USER ? `mailto:${e.SMTP_USER}` : 'mailto:no-responder@example.com'),
+      extraHosts: (e.PUSH_EXTRA_HOSTS || '').split(',').map((x) => x.trim()).filter(Boolean), // solo para pruebas
+    },
     logLevel: e.LOG_LEVEL || 'info',
   };
 }

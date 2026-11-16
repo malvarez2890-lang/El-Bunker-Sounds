@@ -19,12 +19,14 @@ export function testMusicDir(secs = '2') {
 }
 
 export async function makeApp(extra = {}) {
+  const { pushSender, ...envExtra } = extra; // pushSender: función falsa para probar avisos sin servicios externos
+  extra = envExtra;
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ebs-data-'));
   const config = loadConfig({
     MUSIC_DIR: extra.MUSIC_DIR || testMusicDir(), DATA_DIR: dataDir, BASE_URL: 'http://localhost:3999',
     ADMIN_EMAILS: 'admin@test.cl', MAIL_MODE: 'file', SCAN_INTERVAL_MIN: '0', ...extra,
   });
-  const { app, ctx } = await buildApp(config, { logger: false });
+  const { app, ctx } = await buildApp(config, { logger: false, pushSender });
   await ctx.library.scan();
   await ctx.transcoder.whenIdle();
 

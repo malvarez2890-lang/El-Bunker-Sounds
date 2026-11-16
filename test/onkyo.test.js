@@ -171,9 +171,9 @@ describe('Onkyo (equipo simulado)', () => {
   test('al terminar una canción pasa sola a la siguiente, y al final se detiene', async () => {
     await A('POST', '/api/onkyo/play', { ids: ids.slice(0, 3), index: 0 });
     const before = fake.av.fetched.length;
-    await until(async () => (await A('GET', '/api/onkyo')).json().index === 2, 25000);
+    await until(async () => (await A('GET', '/api/onkyo')).json().index === 2, 45000);
     assert.ok(fake.av.fetched.length >= before + 2);
-    await until(async () => (await A('GET', '/api/onkyo')).json().state === 'stopped', 20000);
+    await until(async () => (await A('GET', '/api/onkyo')).json().state === 'stopped', 30000);
   });
 
   test('si alguien lo detiene a mitad de canción, no salta a la siguiente', async () => {

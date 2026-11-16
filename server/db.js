@@ -116,6 +116,20 @@ const MIGRATIONS = [
     updated_at INTEGER NOT NULL
   );
   `,
+  // 4: avisos al celular (Web Push), ajustes y "música nueva ya avisada"
+  `
+  CREATE TABLE push_subs (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    endpoint TEXT NOT NULL UNIQUE,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX push_subs_user ON push_subs(user_id);
+  CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+  ALTER TABLE tracks ADD COLUMN announced INTEGER NOT NULL DEFAULT 1; -- 0 = canción nueva todavía sin avisar
+  `,
 ];
 
 export function openDb(dataDir) {

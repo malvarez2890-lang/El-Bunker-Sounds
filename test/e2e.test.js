@@ -678,17 +678,23 @@ test('novedades: el administrador crea una y aparece arriba en Inicio (destacado
   await page.getByLabel('Título').fill('Próximo lanzamiento');
   await page.getByLabel('Texto').fill('Cuatro singles del nuevo álbum.');
   await page.getByLabel('Álbum que se abre al tocar').selectOption({ index: 1 });
+  await page.getByLabel('Enviar aviso al celular de todos').waitFor(); // por defecto, las novedades nuevas se avisan
+  assert.equal(await page.getByLabel('Enviar aviso al celular de todos').isChecked(), true);
+  await page.getByLabel('Enviar aviso al celular de todos').uncheck(); // en la prueba nadie tiene avisos activados
   await page.waitForTimeout(450);
   await shot(page, '70-novedad-formulario');
   await page.getByRole('button', { name: 'Guardar' }).click();
   await page.getByText('Novedad guardada').waitFor();
   await P(page).getByText('VISIBLE').first().waitFor();
+  await P(page).getByRole('button', { name: 'Probar en mi celular' }).waitFor();
+  await P(page).getByLabel('Avisar solo cuando llegue música nueva').waitFor();
   await page.goto(`${base}/#/`); await settled(page);
   await P(page).locator('.hero.news h2', { hasText: 'Próximo lanzamiento' }).waitFor();
   await P(page).locator('.feat-row').waitFor();
   assert.equal(await P(page).locator('.hero:not(.news)').count(), 0, 'el destacado grande se reemplaza por la fila pequeña');
   await page.waitForFunction(() => [...document.images].every((i) => i.complete));
   await shot(page, '71-novedad-inicio');
+  await P(page).getByRole('button', { name: 'Avísame' }).waitFor(); // los avisos están apagados en este navegador de prueba
   await P(page).getByRole('link', { name: 'Ver álbum' }).click();
   await page.locator('.detail-head h1').waitFor();
   await page.goto(`${base}/#/admin`); await settled(page);
@@ -827,6 +833,15 @@ test('Onkyo: el administrador lo ve, envía la cola, controla y el amigo no tien
   await page.waitForFunction(() => !document.body.textContent.includes('Sonando en el Onkyo'));
   assert.equal(fakeOnkyo.dev.power, false);
   await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+});
+
+test('perfil: opción para activar los avisos de novedades', { skip: !pw }, async () => {
+  const { page } = admin;
+  await page.getByRole('button', { name: 'Tu perfil' }).click();
+  await page.getByRole('button', { name: /Activar avisos de novedades/ }).waitFor();
+  await page.waitForTimeout(450);
+  await shot(page, '72-perfil-avisos');
   await page.keyboard.press('Escape');
 });
 

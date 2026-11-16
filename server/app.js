@@ -18,6 +18,8 @@ import adminRoutes from './routes/admin.js';
 import onkyoRoutes from './routes/onkyo.js';
 import { createOnkyo } from './onkyo.js';
 import { createNews } from './news.js';
+import { createPush } from './push.js';
+import pushRoutes from './routes/push.js';
 
 const webDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'web');
 
@@ -41,7 +43,7 @@ function webVersion(tz = 'America/Santiago') {
   return { id: h.digest('hex').slice(0, 8), label };
 }
 
-export async function buildApp(config, { logger = true } = {}) {
+export async function buildApp(config, { logger = true, pushSender } = {}) {
   const app = Fastify({
     logger: logger ? { level: config.logLevel } : false,
     trustProxy: config.trustProxy,
@@ -54,6 +56,7 @@ export async function buildApp(config, { logger = true } = {}) {
   const lib = createLibraryQueries(db);
   const transcoder = createTranscoder({ db, config, log });
   const news = createNews({ db, lib });
+  const push = createPush({ db, config, log, sender: pushSender });
   const onkyo = createOnkyo({ config, db, lib, log, transcoder });
   const covers = createCovers({ config });
   app.addHook('onClose', async () => onkyo.close());
@@ -70,6 +73,7 @@ export async function buildApp(config, { logger = true } = {}) {
         try {
           lastScan = { at: Date.now(), ...(await scanLibrary({ db, config, log })) };
           transcoder.kick();
+          transcoder.whenIdle().then(() => push.announceNewMusic()).catch((e) => log.warn({ err: e.message }, 'no pude avisar de música nueva'));
           transcoder.cleanup().catch(() => {});
         } catch (err) {
           lastScan = { at: Date.now(), error: err.message };
@@ -84,7 +88,7 @@ export async function buildApp(config, { logger = true } = {}) {
   };
 
   app.decorate('db', db);
-  app.decorate('ctx', { config, db, auth, lib, library, transcoder, covers, mailer, onkyo, news });
+  app.decorate('ctx', { config, db, auth, lib, library, transcoder, covers, mailer, onkyo, news, push });
 
   await app.register(cookie);
   await app.register(rateLimit, { global: true, max: 1200, timeWindow: '1 minute' });
@@ -122,7 +126,8 @@ export async function buildApp(config, { logger = true } = {}) {
   app.get('/api/version', async () => ({ v: version.id, label: version.label }));
   await app.register(authRoutes, { auth, config });
   await app.register(apiRoutes, { auth, config, lib, db, covers, news });
-  await app.register(adminRoutes, { auth, db, library, transcoder, config, news });
+  await app.register(adminRoutes, { auth, db, library, transcoder, config, news, push });
+  await app.register(pushRoutes, { auth, push });
   await app.register(onkyoRoutes, { auth, onkyo });
 
   // Archivos de la app (HTML, JS, CSS, fuentes e iconos): son públicos; la música no.
