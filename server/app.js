@@ -21,16 +21,23 @@ import { createOnkyo } from './onkyo.js';
 const webDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'web');
 
 /** Identificador corto de la versión de la app (cambia cuando cambian los archivos de web/): así el celular sabe cuándo hay algo nuevo. */
-function webVersion() {
+function webVersion(tz = 'America/Santiago') {
   const h = crypto.createHash('sha1');
+  let newest = 0;
   const walk = (dir) => {
     for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       const full = path.join(dir, e.name);
-      if (e.isDirectory()) { if (!/^(fonts|icons|splash)$/.test(e.name)) walk(full); } else { const st = fs.statSync(full); h.update(`${path.relative(webDir, full)}:${st.size}:${Math.floor(st.mtimeMs)};`); }
+      if (e.isDirectory()) { if (!/^(fonts|icons|splash)$/.test(e.name)) walk(full); } else { const st = fs.statSync(full); newest = Math.max(newest, st.mtimeMs); h.update(`${path.relative(webDir, full)}:${st.size}:${Math.floor(st.mtimeMs)};`); }
     }
   };
   try { walk(webDir); } catch { /* sin carpeta web */ }
-  return h.digest('hex').slice(0, 8);
+  // Texto para personas: cuándo se actualizó la app (ej. "16 nov, 21:40"), en hora de Chile.
+  let label = '';
+  try {
+    const f = new Intl.DateTimeFormat('es-CL', { timeZone: tz, day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+    label = f.format(new Date(newest || Date.now())).replace(/\./g, '').replace(' ', ' ');
+  } catch { label = ''; }
+  return { id: h.digest('hex').slice(0, 8), label };
 }
 
 export async function buildApp(config, { logger = true } = {}) {
@@ -111,8 +118,8 @@ export async function buildApp(config, { logger = true } = {}) {
     req.user = req.url.startsWith('/api/') ? auth.userFromRequest(req, reply) : null;
   });
 
-  const version = webVersion();
-  app.get('/api/version', async () => ({ v: version }));
+  const version = webVersion(process.env.APP_TZ || 'America/Santiago');
+  app.get('/api/version', async () => ({ v: version.id, label: version.label }));
   await app.register(authRoutes, { auth, config });
   await app.register(apiRoutes, { auth, config, lib, db, covers });
   await app.register(adminRoutes, { auth, db, library, transcoder, config });

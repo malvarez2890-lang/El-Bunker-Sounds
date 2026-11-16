@@ -247,6 +247,7 @@ describe('servidor', () => {
     const a = await t.app.inject({ method: 'GET', url: '/api/version' });
     assert.equal(a.statusCode, 200);
     assert.match(a.json().v, /^[0-9a-f]{8}$/);
+    assert.match(a.json().label, /^\d{1,2} \w+,? \d{2}:\d{2}$/, a.json().label); // ej. "16 nov, 21:40"
     const b = await t.app.inject({ method: 'GET', url: '/api/version' });
     assert.equal(b.json().v, a.json().v);
   });

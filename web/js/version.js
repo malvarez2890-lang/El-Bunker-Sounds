@@ -3,9 +3,10 @@ import { get } from './api.js';
 import * as player from './player.js';
 
 let current = null;
-export const appVersion = () => current;
+let label = '';
+export const appVersion = () => label || current; // lo que ve la persona: fecha y hora de la actualización
 export async function initVersion() {
-  try { current = (await get('/api/version')).v; } catch { /* sin conexión */ }
+  try { const r = await get('/api/version'); current = r.v; label = r.label || ''; } catch { /* sin conexión */ }
 }
 let checking = false;
 export async function checkForUpdate() {
