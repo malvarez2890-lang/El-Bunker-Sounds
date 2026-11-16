@@ -301,6 +301,7 @@ function load(index, { autoplay = true, startAt = 0 } = {}) {
     st.loading = false;
     loadedId = t.id;
     spareId = spareId === t.id ? null : spareId; // la lista previa puede ya no corresponder
+    audio.loop = false; // (durante la descarga sonaba un silencio en bucle)
     audio.src = url;
     log('cargada', `id=${t.id}`);
     if (st.wantPlay) startPlayback();
@@ -311,6 +312,13 @@ function load(index, { autoplay = true, startAt = 0 } = {}) {
   else {
     st.loading = true;
     if (!audio.paused && !isSilent()) audio.pause(); // la anterior se detiene mientras baja la nueva
+    // Si bloqueas el teléfono mientras baja la canción, iOS congela la app y la descarga se queda esperando hasta que desbloquees.
+    // Un silencio en bucle (iniciado con tu toque) mantiene el audio activo y la app despierta; al terminar la descarga, parte sola.
+    if (autoplay && !remote) {
+      audio.loop = true; loadedId = null;
+      if (!audio.src.endsWith('/silence-long.wav')) audio.src = SILENT_LONG;
+      audio.play().catch(() => {});
+    }
     e.promise.then(apply).catch((err) => {
       if (my !== loadToken || err?.name === 'AbortError') return;
       st.loading = false; st.playing = false; st.wantPlay = false;

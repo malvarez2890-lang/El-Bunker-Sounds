@@ -654,6 +654,22 @@ test('amigo nuevo: queda pendiente y el admin lo aprueba desde la app', { skip: 
   await friend.page.getByRole('heading', { name: 'Entrar' }).or(friend.page.getByRole('button', { name: 'Comenzar' })).waitFor();
 });
 
+test('mientras baja una canción suena un silencio (así, con el teléfono bloqueado, la descarga sigue y parte sola)', { skip: !pw }, async () => {
+  const { page } = admin;
+  await page.goto(`${base}/#/lista/album`);
+  await settled(page);
+  await P(page).locator('.card', { hasText: 'Musica per te' }).click();
+  await page.getByRole('heading', { name: 'Musica per te' }).waitFor();
+  await settled(page);
+  await page.route('**/api/stream/**', async (route) => { await new Promise((r) => setTimeout(r, 1800)); try { await route.continue(); } catch { /* la ruta ya se quitó */ } });
+  await P(page).locator('.row .main').nth(6).click(); // una canción lejana: no está precargada
+  await page.waitForFunction(() => window.__audios.some((a) => /silence-long\.wav$/.test(a.src) && !a.paused && a.loop), null, { timeout: 4000 });
+  await page.unroute('**/api/stream/**');
+  // al terminar la descarga, la canción suena sola (sin tocar nada más) y el bucle de silencio se apaga
+  await page.waitForFunction(() => { const a = window.__a(); return a && a.src.startsWith('blob:') && !a.paused && !a.loop && a.currentTime > 0.3; }, null, { timeout: 15000 });
+  assert.equal(await page.evaluate(() => window.__audios.filter((a) => /silence-long\.wav$/.test(a.src) && !a.paused).length), 0);
+});
+
 test('Onkyo: el administrador lo ve, envía la cola, controla y el amigo no tiene botón', { skip: !pw }, async () => {
   const { page } = admin;
   await page.goto(`${base}/#/`); await settled(page);
