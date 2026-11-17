@@ -137,8 +137,8 @@ export const duration = () => (remote ? remote.duration() || current()?.duration
 const logs = [];
 function log(e, extra = '', el = audio) {
   const seek = el.seekable?.length ? `${el.seekable.start(0).toFixed(1)}-${el.seekable.end(el.seekable.length - 1).toFixed(1)}` : '-';
-  logs.push(`${new Date().toLocaleTimeString('es')} [${el.dataset.deck}${el === audio ? '*' : ''}] ${e} t=${(el.currentTime || 0).toFixed(1)} rs=${el.readyState} ns=${el.networkState} seek=${seek}${extra ? ' ' + extra : ''}`);
-  if (logs.length > 80) logs.shift();
+  logs.push(`${new Date().toLocaleTimeString('es')} [${el.dataset.deck}${el === audio ? '*' : ''}] ${e} t=${(el.currentTime || 0).toFixed(1)} rs=${el.readyState} ns=${el.networkState} seek=${seek}${document.hidden ? ' OCULTA' : ''}${extra ? ' ' + extra : ''}`);
+  if (logs.length > 120) logs.shift();
 }
 for (const el of decks) {
   for (const ev of ['loadedmetadata', 'canplay', 'playing', 'pause', 'ended', 'error', 'stalled', 'waiting', 'seeking', 'seeked', 'emptied', 'abort']) {
@@ -323,7 +323,7 @@ function reconcile() {
   }
   if (pendingSwap && document.visibilityState === 'visible') swapToBlob(pendingSwap.url, pendingSwap.id);
 }
-document.addEventListener('visibilitychange', () => { if (!document.hidden) reconcile(); });
+document.addEventListener('visibilitychange', () => { log(document.hidden ? 'pantalla: se oculta/bloquea' : 'pantalla: vuelve'); if (!document.hidden) reconcile(); });
 window.addEventListener('pageshow', () => reconcile());
 
 /** Carga la canción de la cola (descargándola si hace falta) y la reproduce. */
