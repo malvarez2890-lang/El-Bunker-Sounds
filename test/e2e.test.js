@@ -174,6 +174,27 @@ test('álbum: reproducir, mini reproductor, pantalla bloqueada (Media Session)',
   await page.waitForFunction(() => !window.__a().paused);
 });
 
+test('si algo reanuda el audio por su cuenta (iOS, accesorios), no suena: ni la canción pausada ni la siguiente', { skip: !pw }, async () => {
+  const { page } = admin;
+  await page.goto(`${base}/#/lista/album`); await settled(page);
+  await P(page).locator('.card', { hasText: 'Musica per te' }).click();
+  await page.getByRole('heading', { name: 'Musica per te' }).waitFor();
+  await page.getByRole('button', { name: 'Reproducir', exact: true }).first().click();
+  await page.waitForFunction(() => window.__a() && window.__a().currentTime > 0.8, null, { timeout: 15000 });
+  await page.waitForFunction(() => window.__audios.filter((a) => a.src.startsWith('blob:')).length >= 2, null, { timeout: 15000 }); // la siguiente ya está lista
+  await page.getByRole('button', { name: 'Pausar' }).first().click();
+  await page.waitForFunction(() => window.__audios.every((a) => a.paused));
+  // el sistema "reanuda" los dos reproductores sin que nadie apriete play
+  await page.evaluate(() => window.__audios.filter((a) => a.src.startsWith('blob:')).forEach((a) => a.play().catch(() => {})));
+  await page.waitForTimeout(700);
+  assert.equal(await page.evaluate(() => window.__audios.filter((a) => !a.paused).length), 0, 'todo sigue en pausa');
+  // y al apretar play de verdad, suena solo la canción actual
+  await page.getByRole('button', { name: 'Reproducir' }).first().click();
+  await page.waitForFunction(() => window.__audios.some((a) => !a.paused && a.src.startsWith('blob:')));
+  assert.equal(await page.evaluate(() => window.__audios.filter((a) => !a.paused && a.src.startsWith('blob:')).length), 1, 'suena una sola');
+  await page.getByRole('button', { name: 'Pausar' }).first().click();
+});
+
 test('reproductor expandido: progreso, favorito, cola, aleatorio, repetir', { skip: !pw }, async () => {
   const { page } = admin;
   await page.locator('.mini .main').click();

@@ -476,7 +476,13 @@ const syncPlaying = () => {
 let lastTick = 0;
 function wire(el) {
   const active = () => el === audio;
-  el.addEventListener('play', () => { if (active() && !isSilent()) syncPlaying(); });
+  // Candado: el teléfono solo suena si TÚ lo pediste (o la cola pasó sola a la siguiente). Si algo lo reanuda por su cuenta
+  // (iOS al volver a la app, un accesorio Bluetooth, etc.) se vuelve a pausar; y el reproductor de reserva jamás suena solo.
+  const unrequested = () => !remote && !isSilentEl(el) && ((el === audio && !st.wantPlay) || (el !== audio && !handingOff));
+  el.addEventListener('play', () => {
+    if (unrequested()) { el.pause(); log('play no pedido: se vuelve a pausar', '', el); return; }
+    if (active() && !isSilent()) syncPlaying();
+  });
   el.addEventListener('pause', () => {
     if (!active()) { refreshSpare(); return; } // el reproductor anterior terminó de sonar: se prepara la siguiente
     if (!isSilent() && !el.ended) syncPlaying();
