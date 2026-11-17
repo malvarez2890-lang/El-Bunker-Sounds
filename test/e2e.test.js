@@ -195,6 +195,25 @@ test('si algo reanuda el audio por su cuenta (iOS, accesorios), no suena: ni la 
   await page.getByRole('button', { name: 'Pausar' }).first().click();
 });
 
+test('con la pantalla bloqueada, si iOS pausó la canción antes de que cargara, se vuelve a intentar al cargar', { skip: !pw }, async () => {
+  const { page } = admin;
+  await page.goto(`${base}/#/lista/album`); await settled(page);
+  await P(page).locator('.card', { hasText: 'Musica per te' }).click();
+  await page.getByRole('heading', { name: 'Musica per te' }).waitFor();
+  await page.getByRole('button', { name: 'Reproducir', exact: true }).first().click();
+  await page.waitForFunction(() => window.__a() && window.__a().currentTime > 0.5, null, { timeout: 15000 });
+  // se simula: pantalla bloqueada + iOS pausa la canción por su cuenta (sin que nadie lo pida)
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    const a = window.__a(); a.pause();
+  });
+  await page.waitForFunction(() => window.__a().paused);
+  await page.evaluate(() => window.__a().dispatchEvent(new Event('loadedmetadata'))); // llega el aviso de "ya cargó"
+  await page.waitForFunction(() => !window.__a().paused, null, { timeout: 4000 });
+  await page.evaluate(() => { delete document.hidden; });
+  await page.getByRole('button', { name: 'Pausar' }).first().click();
+});
+
 test('reproductor expandido: progreso, favorito, cola, aleatorio, repetir', { skip: !pw }, async () => {
   const { page } = admin;
   await page.locator('.mini .main').click();

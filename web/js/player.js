@@ -519,6 +519,13 @@ const syncPlaying = () => {
   if ('mediaSession' in navigator) navigator.mediaSession.playbackState = st.playing ? 'playing' : (current() ? 'paused' : 'none');
   changed();
 };
+/** Con la pantalla bloqueada, iOS pausa una canción que todavía no cargó (aún no sabe si tiene audio). Apenas carga, se intenta de nuevo. */
+function retryInBackground(why) {
+  if (remote || !document.hidden || !st.wantPlay || !audio.paused || isSilent() || !audio.src) return;
+  log('reintento en segundo plano', why);
+  const p = audio.play();
+  if (p?.then) p.then(() => log('reintento en segundo plano: sonó'), (err) => log('reintento en segundo plano: rechazado', err?.name));
+}
 let lastTick = 0;
 function wire(el) {
   const active = () => el === audio;
@@ -537,8 +544,10 @@ function wire(el) {
     if (!active()) { refreshSpare(); return; }  // terminó el final de la canción anterior: se prepara la siguiente
     if (!isSilent() && el.ended) next({ auto: true }); // si el evento es viejo (otra canción ya cargada) se ignora
   });
+  el.addEventListener('canplay', () => { if (active()) retryInBackground('canplay'); });
   el.addEventListener('loadedmetadata', () => {
     if (!active() || isSilent()) return;
+    retryInBackground('loadedmetadata');
     if (pendingSeek != null) { el.currentTime = Math.min(pendingSeek, (el.duration || pendingSeek) - 0.1); pendingSeek = null; }
     updatePositionState();
     emit('time');
