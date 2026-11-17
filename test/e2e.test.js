@@ -675,20 +675,26 @@ test('amigo nuevo: queda pendiente y el admin lo aprueba desde la app', { skip: 
   await friend.page.getByRole('heading', { name: 'Entrar' }).or(friend.page.getByRole('button', { name: 'Comenzar' })).waitFor();
 });
 
-test('mientras baja una canción suena un silencio (así, con el teléfono bloqueado, la descarga sigue y parte sola)', { skip: !pw }, async () => {
+test('apenas tocas una canción suena (por streaming) mientras baja la copia; luego cambia a la copia sin cortarse', { skip: !pw }, async () => {
   const { page } = admin;
   await page.goto(`${base}/#/lista/album`);
   await settled(page);
   await P(page).locator('.card', { hasText: 'Musica per te' }).click();
   await page.getByRole('heading', { name: 'Musica per te' }).waitFor();
   await settled(page);
-  await page.route('**/api/stream/**', async (route) => { await new Promise((r) => setTimeout(r, 1800)); try { await route.continue(); } catch { /* la ruta ya se quitó */ } });
+  // la bajada completa (sin Range) se retrasa; el audio (con Range) pasa normal
+  await page.route('**/api/stream/**', async (route) => {
+    if (!route.request().headers().range) await new Promise((r) => setTimeout(r, 2500));
+    try { await route.continue(); } catch { /* la ruta ya se quitó */ }
+  });
   await P(page).locator('.row .main').nth(6).click(); // una canción lejana: no está precargada
-  await page.waitForFunction(() => window.__audios.some((a) => /silence-long\.wav$/.test(a.src) && !a.paused && a.loop), null, { timeout: 4000 });
+  await page.waitForFunction(() => window.__audios.some((a) => a.src.includes('/api/stream/') && !a.paused && a.currentTime > 0.3), null, { timeout: 4000 }); // ya suena, sin esperar la descarga
+  const before = await page.evaluate(() => Math.max(...window.__audios.filter((a) => !a.paused).map((a) => a.currentTime)));
+  // al terminar la descarga, cambia a la copia en memoria y sigue donde iba
+  await page.waitForFunction(() => window.__audios.some((a) => a.src.startsWith('blob:') && !a.dataset.shadow && !a.paused && a.currentTime > 0), null, { timeout: 15000 });
+  const after = await page.evaluate(() => Math.max(...window.__audios.filter((a) => a.src.startsWith('blob:') && !a.paused).map((a) => a.currentTime)));
+  assert.ok(after >= before - 0.3, `sigue donde iba (${before} → ${after})`);
   await page.unroute('**/api/stream/**');
-  // al terminar la descarga, la canción suena sola (sin tocar nada más) y el bucle de silencio se apaga
-  await page.waitForFunction(() => { const a = window.__a(); return a && a.src.startsWith('blob:') && !a.paused && !a.loop && a.currentTime > 0.3; }, null, { timeout: 15000 });
-  assert.equal(await page.evaluate(() => window.__audios.filter((a) => /silence-long\.wav$/.test(a.src) && !a.paused).length), 0);
 });
 
 test('novedades: el administrador crea una y aparece arriba en Inicio (destacado más pequeño)', { skip: !pw }, async () => {

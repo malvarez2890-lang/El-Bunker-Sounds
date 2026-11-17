@@ -80,7 +80,7 @@ function syncShadow() {
 export function setRemote(r) {
   remote = r;
   if (r) {
-    st.playing = false; st.wantPlay = false; loadToken++; // se cancela cualquier descarga en curso
+    st.playing = false; st.wantPlay = false; loadToken++; streamingId = null; pendingSwap = null; // se cancela cualquier descarga en curso
     spare.pause(); spareId = null;
     audio.pause(); loadedId = null; dropShadow();
     syncShadow();
@@ -150,7 +150,7 @@ export function debugInfo() {
     logs: logs.slice().reverse(),
     audio: {
       paused: audio.paused, ended: audio.ended, currentTime: audio.currentTime, duration: audio.duration, readyState: audio.readyState,
-      networkState: audio.networkState, source: isSilent() ? 'silencio' : audio.src.startsWith('blob:') ? 'memoria (blob)' : audio.src ? 'red' : 'ninguna',
+      networkState: audio.networkState, source: isSilent() ? 'silencio' : audio.src.startsWith('blob:') ? 'memoria (blob)' : audio.src ? (streamingId != null ? 'streaming' : 'red') : 'ninguna',
       seekable: audio.seekable?.length ? `${audio.seekable.start(0).toFixed(1)} a ${audio.seekable.end(audio.seekable.length - 1).toFixed(1)}` : 'nada',
     },
     spare: { id: spareId, paused: spare.paused, source: spare.src.startsWith('blob:') ? 'blob' : spare.src ? 'otro' : 'ninguna' },
@@ -245,8 +245,9 @@ function refreshSpare() {
   }).catch(() => {});
 }
 let handingOff = false;
+let handoffToken = 0;
 function maybeHandoff() {
-  if (handingOff || spareId == null || isSilent() || audio.paused) return;
+  if (handingOff || spareId == null || isSilent() || audio.paused || !st.wantPlay) return; // si pausaste, no se arranca la siguiente
   const d = audio.duration;
   if (!(d > 0) || d - audio.currentTime > 0.5) return;
   const ni = nextIndexForHandoff();
@@ -254,13 +255,20 @@ function maybeHandoff() {
   if (!nt || nt.id !== spareId) return;
   const target = spare;
   handingOff = true;
+  const hToken = ++handoffToken;
+  // Si el teléfono no contesta (llamada, bloqueo, otra app), el traspaso se cancela: una respuesta tardía NO debe hacer sonar la siguiente.
+  const giveUp = setTimeout(() => { if (handingOff && hToken === handoffToken) { handingOff = false; handoffToken++; target.pause(); log('traspaso: tardó demasiado, se cancela', '', target); } }, 2500);
   try { target.currentTime = 0; } catch { /* ya está al principio */ }
   const commit = () => {
+    clearTimeout(giveUp);
+    if (hToken !== handoffToken) { target.pause(); return; } // llegó tarde: ya se canceló
     handingOff = false;
+    if (!st.wantPlay) { target.pause(); log('traspaso cancelado: pausaste', '', target); return; }
     if (target !== spare || spareId !== nt.id) { target.pause(); return; } // la cola cambió mientras tanto
     const old = audio;
     audio = target; spare = old;
     spareId = null; spareToken++;
+    streamingId = null; pendingSwap = null;
     st.index = ni; loadedId = nt.id; pendingSeek = null; restorePos = 0; st.loading = false; st.wantPlay = true;
     countedPlayFor = nt.id; post('/api/plays', { trackId: nt.id }).catch(() => {});
     log('traspaso', `a id=${nt.id}`);
@@ -270,7 +278,7 @@ function maybeHandoff() {
   };
   // Solo se hace el cambio si el segundo reproductor realmente arrancó; si el teléfono lo rechaza, sigue el camino normal (al terminar).
   const p = target.play();
-  if (p?.then) p.then(commit, (err) => { handingOff = false; log('traspaso rechazado', err?.name); });
+  if (p?.then) p.then(commit, (err) => { clearTimeout(giveUp); if (hToken === handoffToken) handingOff = false; log('traspaso rechazado', err?.name); });
   else commit();
 }
 
@@ -284,6 +292,40 @@ function startPlayback() {
 
 function changed() { saveSoon(); emit('change', st); }
 
+let streamingId = null; // canción que suena por streaming mientras se baja su copia
+let pendingSwap = null; // copia lista pero con la pantalla bloqueada: el cambio se hace al volver (iOS no deja cambiar el audio en segundo plano)
+function swapToBlob(url, id) {
+  if (streamingId !== id || current()?.id !== id) return;
+  const pos = audio.currentTime || 0;
+  const resume = !audio.paused;
+  streamingId = null; pendingSwap = null;
+  audio.src = url;
+  audio.addEventListener('loadedmetadata', () => {
+    try { audio.currentTime = pos; } catch { /* sin posición */ }
+    if (resume && st.wantPlay) startPlayback();
+    updatePositionState(); emit('time');
+  }, { once: true });
+  log('cambio a la copia en memoria', `id=${id} en ${pos.toFixed(1)}s`);
+  changed();
+}
+function blobReadyWhileStreaming(url, t, index) {
+  log('copia lista (suena por streaming)', `id=${t.id}`);
+  prefetch(index); // ya se puede ir bajando la siguiente
+  if (document.visibilityState === 'visible' || audio.paused) swapToBlob(url, t.id);
+  else pendingSwap = { id: t.id, url };
+}
+/** Al volver a la app: si algo suena cuando no debía, se pausa; y se hace el cambio pendiente a la copia en memoria. */
+function reconcile() {
+  if (remote) return;
+  for (const el of decks) {
+    if (el.paused || isSilentEl(el)) continue;
+    if ((el === audio && !st.wantPlay) || (el !== audio && !handingOff)) { el.pause(); log('al volver: se pausa un reproductor que no debía sonar', '', el); }
+  }
+  if (pendingSwap && document.visibilityState === 'visible') swapToBlob(pendingSwap.url, pendingSwap.id);
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) reconcile(); });
+window.addEventListener('pageshow', () => reconcile());
+
 /** Carga la canción de la cola (descargándola si hace falta) y la reproduce. */
 function load(index, { autoplay = true, startAt = 0 } = {}) {
   const t = st.queue[index];
@@ -296,8 +338,10 @@ function load(index, { autoplay = true, startAt = 0 } = {}) {
   const my = ++loadToken;
   const e = entryFor(t);
 
+  streamingId = null; pendingSwap = null;
   const apply = (url) => {
     if (my !== loadToken) return;
+    if (streamingId === t.id) { blobReadyWhileStreaming(url, t, index); return; } // ya está sonando por streaming
     st.loading = false;
     loadedId = t.id;
     spareId = spareId === t.id ? null : spareId; // la lista previa puede ya no corresponder
@@ -312,12 +356,14 @@ function load(index, { autoplay = true, startAt = 0 } = {}) {
   else {
     st.loading = true;
     if (!audio.paused && !isSilent()) audio.pause(); // la anterior se detiene mientras baja la nueva
-    // Si bloqueas el teléfono mientras baja la canción, iOS congela la app y la descarga se queda esperando hasta que desbloquees.
-    // Un silencio en bucle (iniciado con tu toque) mantiene el audio activo y la app despierta; al terminar la descarga, parte sola.
-    if (autoplay && !remote) {
-      audio.loop = true; loadedId = null;
-      if (!audio.src.endsWith('/silence-long.wav')) audio.src = SILENT_LONG;
-      audio.play().catch(() => {});
+    // Suena YA, por streaming, dentro de tu toque: así iOS la deja arrancar aunque bloquees el teléfono enseguida. Mientras tanto
+    // se baja la copia completa a memoria (para saltar de minuto, retomar y pasar a la siguiente sin depender de la red).
+    if (autoplay && !remote && !(startAt > 0)) { // (si retomas desde un minuto guardado se espera la copia: el streaming de iOS no siempre deja saltar)
+      audio.loop = false;
+      audio.src = streamUrl(t.id);
+      streamingId = t.id; loadedId = t.id; st.loading = false;
+      log('suena por streaming', `id=${t.id}`);
+      startPlayback();
     }
     e.promise.then(apply).catch((err) => {
       if (my !== loadToken || err?.name === 'AbortError') return;
@@ -386,7 +432,7 @@ export function next({ auto = false } = {}) {
     }
     i = 0;
   }
-  load(i, { autoplay: true });
+  load(i, { autoplay: !auto || st.wantPlay }); // si pausaste, la que sigue queda lista pero no arranca sola
 }
 
 export function prev() {
@@ -514,6 +560,13 @@ function wire(el) {
   });
   el.addEventListener('error', () => {
     if (!active() || isSilent() || !current()) return;
+    if (streamingId != null) { // el streaming falló: se usa la copia completa apenas esté lista
+      log('streaming falló: se espera la copia', `id=${streamingId}`);
+      const id = streamingId; streamingId = null; loadedId = null; st.loading = true;
+      if (pendingSwap && pendingSwap.id === id) { const u = pendingSwap.url; pendingSwap = null; el.src = u; loadedId = id; st.loading = false; if (st.wantPlay) startPlayback(); }
+      changed();
+      return;
+    }
     errorStreak++;
     emit('error', current());
     if (errorStreak < 3 && st.index < st.queue.length - 1) setTimeout(() => next({ auto: true }), 600);
