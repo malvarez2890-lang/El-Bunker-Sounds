@@ -108,7 +108,7 @@ export function adoptQueue(tracks, index) {
   emit('change');
 }
 /** El aparato remoto cambió de canción: se muestra la misma aquí, sin cargar ni sonar nada en el teléfono. */
-export function syncIndex(i) { if (remote && st.queue[i] && st.index !== i) { st.index = i; remoteMedia(); emit('change'); } }
+export function syncIndex(i) { if (remote && st.queue[i] && st.index !== i) { st.index = i; remoteMedia(); emit('change'); if (needMix()) extendMix(); } }
 export const refresh = () => { remoteMedia(); emit('change'); emit('time'); };
 /** Pantalla bloqueada con el Onkyo: título, estado y posición vienen del Onkyo, no del audio del teléfono. */
 function remoteMedia() {
@@ -185,7 +185,27 @@ function trim(keep) {
 /** Con el Onkyo, los cambios de la cola (agregar, quitar, "siguiente") también se le avisan, sin interrumpir lo que suena. */
 function syncRemoteQueue() { if (remote) remote.setQueue(st.queue.map((t) => t.id)); }
 
+/** Cuando la cola está por terminar (y no se repite), se le agrega un mix al azar de toda la música lista: nunca se queda en silencio. */
+let mixPending = null;
+const needMix = () => st.repeat === 'off' && st.queue.length > 0 && st.index >= st.queue.length - 2;
+function extendMix() {
+  if (mixPending) return mixPending;
+  if (st.repeat !== 'off') return Promise.resolve(0);
+  mixPending = get('/api/shuffle').then(({ tracks }) => {
+    const inQueue = new Set(st.queue.map((t) => t.id));
+    let fresh = tracks.filter((t) => t.ready !== false && !inQueue.has(t.id));
+    if (!fresh.length) fresh = tracks.filter((t) => t.ready !== false && t.id !== current()?.id); // biblioteca chica: algunas se repiten
+    if (!fresh.length) return 0;
+    st.queue.push(...fresh); st.original.push(...fresh);
+    log('mix automático', `+${fresh.length} canciones`);
+    syncRemoteQueue(); refreshSpare(); changed();
+    return fresh.length;
+  }).catch(() => 0).finally(() => { mixPending = null; });
+  return mixPending;
+}
+
 function prefetch(index) {
+  if (needMix()) extendMix();
   if (remote) return; // el teléfono no descarga nada: suena en el Onkyo
   const q = st.queue;
   const next = q[index + 1] || (st.repeat === 'all' ? q[0] : null);
@@ -394,7 +414,7 @@ export function playTracks(tracks, startIndex = 0, { shuffle } = {}) {
     st.index = Math.max(0, ready.findIndex((t) => t.id === start.id));
   }
   errorStreak = 0;
-  if (remote) { remote.play(st.queue.map((t) => t.id), st.index); changed(); return; } // ya elegiste el Onkyo: lo que pongas suena allá, al tiro
+  if (remote) { remote.play(st.queue.map((t) => t.id), st.index); changed(); if (needMix()) extendMix(); return; } // ya elegiste el Onkyo: lo que pongas suena allá, al tiro
   load(st.index);
 }
 
@@ -427,8 +447,13 @@ export function next({ auto = false } = {}) {
   if (auto && st.repeat === 'one') { audio.currentTime = 0; startPlayback(); return; }
   let i = st.index + 1;
   if (i >= st.queue.length) {
-    if (auto && st.repeat === 'off') { // terminó la cola: queda detenida
-      audio.pause(); st.playing = false; st.wantPlay = false; seek(0); changed(); return;
+    if (st.repeat === 'off') { // terminó la cola: sigue un mix de toda la música; si no hay de dónde sacarlo, queda detenida (o vuelve al principio si fue un toque)
+      extendMix().then((n) => {
+        if (n && st.index + 1 < st.queue.length) next({ auto });
+        else if (auto) { audio.pause(); st.playing = false; st.wantPlay = false; seek(0); changed(); }
+        else load(0, { autoplay: true });
+      });
+      return;
     }
     i = 0;
   }

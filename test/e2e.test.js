@@ -444,6 +444,26 @@ test('reproducción: pasa sola a la siguiente, la barra salta de verdad y retoma
   await page.waitForFunction((pos) => window.__a() && !window.__a().paused && window.__a().currentTime >= pos - 0.6, saved.pos, { timeout: 8000 });
 });
 
+test('al terminar el álbum sigue solo un mix de toda la música (no se queda en silencio)', { skip: !pw }, async () => {
+  const { page } = admin;
+  await noSplash(page);
+  await page.evaluate(() => { window.__suppressEnded = false; });
+  await page.goto(`${base}/#/lista/album`); await settled(page);
+  await P(page).locator('.card', { hasText: 'Scusa... Sono Io' }).click(); await settled(page);
+  await P(page).locator('.row', { hasText: 'Pista Tres' }).first().click(); // la última del álbum
+  await page.waitForFunction(() => navigator.mediaSession.metadata?.title === 'Pista Tres');
+  await page.waitForFunction(() => window.__a().currentTime > 1 && !window.__a().paused);
+  await page.locator('.mini .main').click();
+  const pl = page.locator('.player'); await pl.waitFor();
+  for (let n = 0; n < 3 && (await pl.getByRole('button', { name: 'Repetir: apagado' }).count()) === 0; n++) await pl.getByRole('button', { name: /^Repetir/ }).click(); // sin repetir: al terminar la cola entra el mix
+  await pl.getByRole('button', { name: 'Repetir: apagado' }).waitFor();
+  await pl.locator('.range').evaluate((el) => { el.value = 930; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); });
+  await page.waitForFunction(() => { const t = navigator.mediaSession.metadata?.title; return t && !/^Pista /.test(t); }, null, { timeout: 12000 });
+  await page.waitForFunction(() => !window.__a().paused && window.__a().currentTime >= 0, null, { timeout: 8000 });
+  await page.getByRole('button', { name: 'Cerrar reproductor' }).click();
+  await page.locator('.player').waitFor({ state: 'detached' });
+});
+
 test('diagnóstico del audio: está dentro de Administración y muestra el estado y los eventos', { skip: !pw }, async () => {
   const { page } = admin;
   await page.goto(`${base}/#/admin`); await settled(page);
