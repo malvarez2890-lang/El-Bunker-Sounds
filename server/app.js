@@ -50,7 +50,7 @@ export async function buildApp(config, { logger = true, pushSender } = {}) {
     bodyLimit: 64 * 1024,
   });
   const log = app.log;
-  const db = openDb(config.dataDir);
+  const db = openDb(config.dataDir, config.tz);
   const mailer = createMailer({ config, log });
   const auth = createAuth({ db, config, mailer, log });
   const lib = createLibraryQueries(db);

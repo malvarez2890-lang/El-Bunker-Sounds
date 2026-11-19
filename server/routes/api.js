@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { now } from '../util.js';
+import { READY_SQL } from '../library.js';
 
 const intParam = (v) => (/^\d{1,12}$/.test(String(v)) ? Number(v) : NaN);
 
@@ -17,7 +18,7 @@ export default async function apiRoutes(app, { auth, config, lib, db, covers, ne
       news: news.list(),
       latest,
       continue: lib.recentAlbums(req.user.id, 12),
-      counts: db.prepare(`SELECT (SELECT COUNT(*) FROM tracks WHERE missing=0 AND audio_status='ok') AS tracks,
+      counts: db.prepare(`SELECT (SELECT COUNT(*) FROM tracks t WHERE t.missing=0 AND ${READY_SQL}) AS tracks,
         (SELECT COUNT(*) FROM albums WHERE missing=0) AS albums, (SELECT COUNT(*) FROM artists WHERE missing=0) AS artists`).get(),
     };
   });
@@ -42,7 +43,7 @@ export default async function apiRoutes(app, { auth, config, lib, db, covers, ne
     return { tracks: lib.byIds(req.user.id, ids) };
   });
   app.get('/api/shuffle', guard, async (req) => ({
-    tracks: lib.tracks(req.user.id, "AND t.audio_status = 'ok'", [], 'ORDER BY RANDOM() LIMIT 100'),
+    tracks: lib.tracks(req.user.id, `AND ${READY_SQL}`, [], 'ORDER BY RANDOM() LIMIT 100'),
   }));
   app.get('/api/search', guard, async (req) => lib.search(req.user.id, String(req.query.q || '').slice(0, 80)));
 
@@ -51,7 +52,7 @@ export default async function apiRoutes(app, { auth, config, lib, db, covers, ne
     const id = intParam(req.params.id);
     if (Number.isNaN(id)) return bad(reply);
     const t = lib.trackForStream(id);
-    if (!t || t.audio_status !== 'ok' || !t.audio_file) return notFound(reply);
+    if (!t || t.audio_status !== 'ok' || t.embargoed || !t.audio_file) return notFound(reply);
     const file = path.join(config.dataDir, 'audio', path.basename(t.audio_file)); // el nombre sale de la base de datos, nunca del usuario
     let size;
     try { size = fs.statSync(file).size; } catch { return notFound(reply); }

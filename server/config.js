@@ -21,6 +21,7 @@ export function loadConfig(overrides = {}) {
       .split(',')
       .map((s) => s.trim().toLowerCase())
       .filter(Boolean),
+    tz: e.APP_TZ || 'America/Santiago', // zona horaria para fechas de lanzamiento y versión
     sessionDays: Number(e.SESSION_DAYS || 90),
     mp3Bitrate: e.MP3_BITRATE || '320k',
     scanIntervalMin: Number(e.SCAN_INTERVAL_MIN ?? 15),

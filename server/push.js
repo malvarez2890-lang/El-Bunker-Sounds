@@ -66,7 +66,8 @@ export function createPush({ db, config, log, sender }) {
     autoNewMusic: () => getSetting('auto_new_music') === '1',
     setAutoNewMusic(on) {
       setSetting('auto_new_music', on ? '1' : '0');
-      if (on) db.prepare('UPDATE tracks SET announced = 1').run(); // lo que ya existe no se avisa: solo lo que llegue desde ahora
+      // lo que ya existe no se avisa: solo lo que llegue desde ahora (y lo programado, que se avisa el día que sale)
+      if (on) db.prepare('UPDATE tracks SET announced = 1 WHERE NOT (release_date IS NOT NULL AND release_date > ebs_today())').run();
     },
     /** Si está activado, avisa (una sola vez) de las canciones nuevas que ya están listas para escuchar. */
     async announceNewMusic() {
@@ -75,7 +76,8 @@ export function createPush({ db, config, log, sender }) {
       try {
         const rows = db.prepare(`SELECT t.id, al.id AS albumId, al.title AS album, ar.name AS artist FROM tracks t
           JOIN albums al ON al.id = t.album_id JOIN artists ar ON ar.id = t.artist_id
-          WHERE t.announced = 0 AND t.audio_status = 'ok' AND t.missing = 0`).all();
+          WHERE t.announced = 0 AND t.audio_status = 'ok' AND t.missing = 0
+          AND NOT (t.release_date IS NOT NULL AND t.release_date > ebs_today())`).all(); // lo programado se avisa el día que sale
         if (!rows.length) return null;
         db.prepare(`UPDATE tracks SET announced = 1 WHERE id IN (${rows.map(() => '?').join(',')})`).run(...rows.map((r) => r.id));
         const albums = [...new Set(rows.map((r) => r.albumId))];

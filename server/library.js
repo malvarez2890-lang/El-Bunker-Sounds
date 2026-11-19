@@ -1,15 +1,20 @@
 // Consultas de la biblioteca (canciones, álbumes, artistas) ya listas para enviar al navegador.
 import { norm } from './util.js';
 
+// Una canción "programada" tiene archivo pero su fecha de lanzamiento aún no llega: se ve en gris y no suena, como las que no tienen archivo.
+const EMBARGO = "(t.release_date IS NOT NULL AND t.release_date > ebs_today())";
+const UPCOMING = `(t.audio_status = 'upcoming' OR ${EMBARGO})`;
+export const READY_SQL = `(t.audio_status = 'ok' AND NOT ${EMBARGO})`;
+
 const TRACK_SQL = `SELECT t.id, t.title, t.track_no AS trackNo, t.duration, t.album_id AS albumId, al.title AS albumTitle, al.kind,
-  t.artist_id AS artistId, ar.name AS artistName, (t.audio_status = 'ok') AS ready, (t.audio_status = 'upcoming') AS upcoming, (al.cover_rel IS NOT NULL) AS hasCover,
+  t.artist_id AS artistId, ar.name AS artistName, ${READY_SQL} AS ready, ${UPCOMING} AS upcoming, (al.cover_rel IS NOT NULL) AS hasCover,
   al.cover_mtime AS coverV, EXISTS(SELECT 1 FROM favorites f WHERE f.user_id = ? AND f.track_id = t.id) AS fav
   FROM tracks t JOIN albums al ON al.id = t.album_id JOIN artists ar ON ar.id = t.artist_id
   WHERE t.missing = 0 AND al.missing = 0 AND ar.missing = 0`;
 
 const ALBUM_SQL = `SELECT al.id, al.title, al.kind, al.artist_id AS artistId, ar.name AS artistName,
   (al.cover_rel IS NOT NULL) AS hasCover, (al.back_rel IS NOT NULL) AS hasBack, al.cover_mtime AS coverV, al.back_mtime AS backV,
-  (SELECT COUNT(*) FROM tracks t WHERE t.album_id = al.id AND t.missing = 0 AND t.audio_status != 'upcoming') AS trackCount,
+  (SELECT COUNT(*) FROM tracks t WHERE t.album_id = al.id AND t.missing = 0 AND NOT ${UPCOMING}) AS trackCount,
   (SELECT COUNT(*) FROM tracks t WHERE t.album_id = al.id AND t.missing = 0) AS totalCount, al.release_date AS releaseDate,
   (SELECT COALESCE(SUM(t.duration), 0) FROM tracks t WHERE t.album_id = al.id AND t.missing = 0) AS duration
   FROM albums al JOIN artists ar ON ar.id = al.artist_id WHERE al.missing = 0 AND ar.missing = 0`;
@@ -56,7 +61,7 @@ export function createLibraryQueries(db) {
       return {
         ...row, albums: list,
         trackCount: list.reduce((n, a) => n + a.trackCount, 0),
-        tracks: tracks(uid, "AND t.artist_id = ? AND t.audio_status != 'upcoming'", [id], 'ORDER BY al.added_at DESC, COALESCE(al.order_no,0) DESC, COALESCE(t.track_no,1000000), t.title COLLATE NOCASE'),
+        tracks: tracks(uid, `AND t.artist_id = ? AND NOT ${UPCOMING}`, [id], 'ORDER BY al.added_at DESC, COALESCE(al.order_no,0) DESC, COALESCE(t.track_no,1000000), t.title COLLATE NOCASE'),
       };
     },
 
@@ -73,7 +78,7 @@ export function createLibraryQueries(db) {
       const cond = (col) => tokens.map(() => `${col} LIKE ? ESCAPE '\\'`).join(' AND ');
       const p = tokens.map(like);
       return {
-        tracks: tracks(uid, `AND t.audio_status != 'upcoming' AND ${cond('t.search')}`, p, 'ORDER BY t.title COLLATE NOCASE LIMIT 30'),
+        tracks: tracks(uid, `AND NOT ${UPCOMING} AND ${cond('t.search')}`, p, 'ORDER BY t.title COLLATE NOCASE LIMIT 30'),
         albums: albums(`AND ${cond('al.search')}`, p, 'ORDER BY al.title COLLATE NOCASE LIMIT 20'),
         artists: db.prepare(`SELECT ar.id, ar.name,
           (SELECT al.id FROM albums al WHERE al.artist_id = ar.id AND al.missing = 0 AND al.cover_rel IS NOT NULL LIMIT 1) AS coverAlbumId
@@ -126,7 +131,7 @@ export function createLibraryQueries(db) {
     },
 
     trackForStream(id) {
-      return db.prepare('SELECT id, audio_file, audio_status FROM tracks WHERE id = ? AND missing = 0').get(id);
+      return db.prepare('SELECT t.id, t.audio_file, t.audio_status, t.release_date, (t.release_date IS NOT NULL AND t.release_date > ebs_today()) AS embargoed FROM tracks t WHERE t.id = ? AND t.missing = 0').get(id);
     },
   };
 }

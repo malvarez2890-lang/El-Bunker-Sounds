@@ -143,3 +143,81 @@ describe('álbum con 4 canciones listas y 9 por salir', () => {
     assert.equal(a.totalCount, 6);
   });
 });
+
+describe('lanzamiento programado: el álbum completo ya está en la carpeta pero se libera el día elegido', () => {
+  let t, dir, A, F, albumId;
+  const wav = (album, name, hz) => execFileSync('ffmpeg', ['-nostdin', '-y', '-v', 'error', '-f', 'lavfi', '-i', `sine=frequency=${hz}:duration=1`, path.join(album, name)]);
+  before(async () => {
+    process.env.EBS_FAKE_TODAY = '2026-11-19'; // "hoy" para la prueba
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ebs-programado-'));
+    const album = path.join(dir, 'Artista', 'PIÙ VELOCE', 'Albums', '05. La Vita È Un Gioco');
+    fs.mkdirSync(album, { recursive: true });
+    ['01. Pronti, Via!', '02. Il Re del Bar', '03. Tutto Sotto Controllo', '04. Telefono Occupato', '05. Noi Siamo', '08. Birra Elegante'].forEach((n, i) => wav(album, `${n}.wav`, 300 + i * 50));
+    fs.writeFileSync(path.join(album, 'TRACKLIST.txt'), `Lanzamiento: 21 de noviembre de 2026\nDisponibles: 3, 4, 5 y 8\n${TRACKLIST.split('\n').filter((l) => /^\d/.test(l)).join('\n')}\n`);
+    t = await makeApp({ MUSIC_DIR: dir });
+    A = t.api((await t.login('admin@test.cl')).cookie);
+    const friend = await t.login('amigo@test.cl');
+    await A('POST', `/api/admin/users/${friend.res.json().user.id}`, { status: 'active' });
+    F = t.api(friend.cookie);
+    albumId = (await A('GET', '/api/albums')).json().albums[0].id;
+  });
+  after(async () => { delete process.env.EBS_FAKE_TODAY; await t.close(); });
+
+  test('lee la línea "Disponibles"', () => {
+    assert.deepEqual(parseTracklist('Disponibles: 3, 4, 5 y 8\n01. A').available, [3, 4, 5, 8]);
+    assert.deepEqual(parseTracklist('Singles: 3-4\n01. A').available, [3, 4]);
+    assert.deepEqual(parseTracklist('01. A').available, []);
+  });
+
+  test('antes de la fecha: solo suenan los 4 singles, aunque los otros archivos ya estén en la carpeta', async () => {
+    const a = (await F('GET', `/api/albums/${albumId}`)).json();
+    assert.equal(a.trackCount, 4);
+    assert.equal(a.totalCount, 13);
+    assert.deepEqual(a.tracks.filter((x) => x.ready).map((x) => x.trackNo), [3, 4, 5, 8]);
+    const guardadas = a.tracks.filter((x) => x.trackNo === 1 || x.trackNo === 2);
+    assert.ok(guardadas.every((x) => x.upcoming && !x.ready), 'la 1 y la 2 tienen archivo pero están en gris');
+    assert.equal((await F('GET', `/api/stream/${guardadas[0].id}`)).statusCode, 404, 'no se puede bajar antes de tiempo');
+    assert.equal((await F('GET', '/api/search?q=pronti')).json().tracks.length, 0);
+    assert.equal((await F('GET', '/api/home')).json().counts.tracks, 4);
+    assert.ok((await F('GET', '/api/shuffle')).json().tracks.every((x) => [3, 4, 5, 8].includes(x.trackNo)));
+    assert.equal(t.ctx.db.prepare("SELECT COUNT(*) AS n FROM tracks WHERE audio_status='ok'").get().n, 6, 'las 6 ya están convertidas y listas para el día del lanzamiento');
+  });
+
+  test('el aviso de "música nueva" espera a que salga: se manda el día del lanzamiento, no antes', async () => {
+    t.ctx.db.prepare('UPDATE tracks SET announced = 0').run();
+    t.ctx.push.setAutoNewMusic(true); // lo que ya suena queda como avisado; lo programado sigue pendiente
+    assert.equal(t.ctx.db.prepare("SELECT COUNT(*) AS n FROM tracks WHERE announced = 0").get().n, 2, 'solo la 1 y la 2 (programadas)');
+    assert.equal(await t.ctx.push.announceNewMusic(), null, 'antes de la fecha no hay nada que avisar');
+    process.env.EBS_FAKE_TODAY = '2026-11-21';
+    const r = await t.ctx.push.announceNewMusic(); // ya salió: se avisa (no hay celulares en la prueba, pero se marca)
+    assert.ok(r && r.sent === 0);
+    assert.equal(t.ctx.db.prepare("SELECT COUNT(*) AS n FROM tracks WHERE announced = 0").get().n, 0);
+    t.ctx.push.setAutoNewMusic(false);
+    process.env.EBS_FAKE_TODAY = '2026-11-19';
+  });
+
+  test('el día 21 se liberan solas, sin tocar nada ni volver a escanear', async () => {
+    process.env.EBS_FAKE_TODAY = '2026-11-21';
+    const a = (await F('GET', `/api/albums/${albumId}`)).json();
+    assert.equal(a.trackCount, 6);
+    assert.equal(a.totalCount, 13);
+    assert.deepEqual(a.tracks.filter((x) => x.ready).map((x) => x.trackNo), [1, 2, 3, 4, 5, 8]);
+    const primera = a.tracks[0];
+    assert.equal((await F('GET', `/api/stream/${primera.id}`)).statusCode, 200);
+    assert.equal((await F('GET', '/api/search?q=pronti')).json().tracks.length, 1);
+    assert.equal((await F('GET', '/api/home')).json().counts.tracks, 6);
+    process.env.EBS_FAKE_TODAY = '2026-11-19';
+  });
+
+  test('sin fecha o sin lista de "Disponibles", no se programa nada', async () => {
+    const album = path.join(dir, 'Artista', 'PIÙ VELOCE', 'Albums', '05. La Vita È Un Gioco');
+    fs.writeFileSync(path.join(album, 'TRACKLIST.txt'), `Lanzamiento: 21 de noviembre de 2026\n${TRACKLIST.split('\n').filter((l) => /^\d/.test(l)).join('\n')}\n`);
+    await t.ctx.library.scan();
+    let a = (await F('GET', `/api/albums/${albumId}`)).json();
+    assert.equal(a.trackCount, 6, 'sin "Disponibles" todo lo que tiene archivo suena');
+    fs.writeFileSync(path.join(album, 'TRACKLIST.txt'), `Disponibles: 3, 4, 5, 8\n${TRACKLIST.split('\n').filter((l) => /^\d/.test(l)).join('\n')}\n`);
+    await t.ctx.library.scan();
+    a = (await F('GET', `/api/albums/${albumId}`)).json();
+    assert.equal(a.trackCount, 6, 'sin fecha tampoco se programa');
+  });
+});

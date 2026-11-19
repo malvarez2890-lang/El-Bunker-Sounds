@@ -130,11 +130,19 @@ const MIGRATIONS = [
   CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
   ALTER TABLE tracks ADD COLUMN announced INTEGER NOT NULL DEFAULT 1; -- 0 = canción nueva todavía sin avisar
   `,
+  // 5: canciones con archivo pero "programadas": no se escuchan hasta su fecha de lanzamiento (YYYY-MM-DD)
+  `
+  ALTER TABLE tracks ADD COLUMN release_date TEXT;
+  `,
 ];
 
-export function openDb(dataDir) {
+/** La fecha de hoy (YYYY-MM-DD) en la zona horaria de la app. Para pruebas se puede forzar con EBS_FAKE_TODAY. */
+export const todayIn = (tz) => process.env.EBS_FAKE_TODAY || new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date());
+
+export function openDb(dataDir, tz = 'America/Santiago') {
   fs.mkdirSync(dataDir, { recursive: true });
   const db = new DatabaseSync(path.join(dataDir, 'bunker.db'));
+  db.function('ebs_today', () => todayIn(tz)); // las canciones programadas se liberan solas al llegar su fecha, sin reiniciar nada
   db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA synchronous=NORMAL;');
   const current = db.prepare('PRAGMA user_version').get().user_version;
   for (let i = current; i < MIGRATIONS.length; i++) {

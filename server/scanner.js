@@ -35,16 +35,19 @@ export function parseDateText(text) {
  */
 export function parseTracklist(text) {
   const entries = [];
+  const available = []; // números de las canciones que se pueden escuchar ANTES de la fecha de lanzamiento (los singles)
   let releaseDate = null;
   for (const raw of String(text).replace(/^\uFEFF/, '').split(/\r?\n/)) {
     const line = raw.trim();
     if (!line || line.startsWith('#')) continue;
     const kv = /^(lanzamiento|fecha|release)\s*[:=]\s*(.+)$/i.exec(line);
     if (kv) { releaseDate = parseDateText(kv[2]) || releaseDate; continue; }
+    const av = /^(disponibles?|singles?|ya disponibles?)\s*[:=]\s*(.+)$/i.exec(line);
+    if (av) { for (const n of av[2].match(/\d{1,3}/g) || []) available.push(Number(n)); continue; }
     const m = /^(\d{1,3})\s*[.\-_)]\s*(.+)$/.exec(line);
     if (m) entries.push({ no: Number(m[1]), title: nfc(m[2].trim()) });
   }
-  return { entries, releaseDate };
+  return { entries, releaseDate, available };
 }
 const looseKey = (s) => norm(s).replace(/[^a-z0-9]+/g, '');
 
@@ -116,7 +119,11 @@ async function readAlbumDir(root, relDir, kind, artistName) {
           const cands = tracks.filter((t) => !taken.has(t) && (t.trackNo === e.no || looseKey(t.title) === looseKey(e.title)));
           cands.sort((a, b) => (looseKey(b.title) === looseKey(e.title)) - (looseKey(a.title) === looseKey(e.title)) || (b.mtime ?? 0) - (a.mtime ?? 0));
           const real = cands[0];
-          if (real) { taken.add(real); real.title = e.title; real.trackNo = e.no; for (const other of cands.slice(1)) drop.add(other); } // el título de la lista es el "oficial"
+          if (real) {
+            taken.add(real); real.title = e.title; real.trackNo = e.no; for (const other of cands.slice(1)) drop.add(other);
+            // Programada: tiene archivo, pero no se escucha hasta la fecha (salvo las que la lista deja disponibles desde ya).
+            if (releaseDate && parsed.available.length && !parsed.available.includes(e.no)) real.releaseDate = releaseDate;
+          } // el título de la lista es el "oficial"
           else tracks.push({ srcRel: path.join(relDir, `#por-salir-${pad2(e.no)}`), title: e.title, trackNo: e.no, upcoming: true });
         }
         for (let i = tracks.length - 1; i >= 0; i--) if (drop.has(tracks[i])) tracks.splice(i, 1); // las versiones repetidas no se muestran (el archivo queda en disco)
@@ -207,10 +214,10 @@ export async function scanLibrary({ db, config, log }) {
     ON CONFLICT(folder) DO UPDATE SET artist_id=excluded.artist_id, title=excluded.title, kind=excluded.kind, order_no=excluded.order_no, release_date=excluded.release_date,
       cover_rel=excluded.cover_rel, cover_mtime=excluded.cover_mtime, back_rel=excluded.back_rel, back_mtime=excluded.back_mtime,
       search=excluded.search, seen=excluded.seen, missing=0 RETURNING id`);
-  const upTrack = db.prepare(`INSERT INTO tracks(album_id,artist_id,title,track_no,src_rel,src_size,src_mtime,added_at,search,seen,missing,announced)
-    VALUES(?,?,?,?,?,?,?,?,?,?,0,0)
+  const upTrack = db.prepare(`INSERT INTO tracks(album_id,artist_id,title,track_no,src_rel,src_size,src_mtime,added_at,search,seen,missing,announced,release_date)
+    VALUES(?,?,?,?,?,?,?,?,?,?,0,0,?)
     ON CONFLICT(src_rel) DO UPDATE SET album_id=excluded.album_id, artist_id=excluded.artist_id, title=excluded.title, track_no=excluded.track_no,
-      search=excluded.search, seen=excluded.seen, missing=0,
+      search=excluded.search, seen=excluded.seen, missing=0, release_date=excluded.release_date,
       audio_status=CASE WHEN tracks.src_size IS NOT excluded.src_size OR tracks.src_mtime IS NOT excluded.src_mtime THEN 'pending' ELSE tracks.audio_status END,
       audio_file=CASE WHEN tracks.src_size IS NOT excluded.src_size OR tracks.src_mtime IS NOT excluded.src_mtime THEN NULL ELSE tracks.audio_file END,
       audio_error=CASE WHEN tracks.src_size IS NOT excluded.src_size OR tracks.src_mtime IS NOT excluded.src_mtime THEN NULL ELSE tracks.audio_error END,
@@ -234,7 +241,7 @@ export async function scanLibrary({ db, config, log }) {
         for (const t of r.tracks) {
           if (t.upcoming) { upGhost.run(albumId, artistId, t.title, t.trackNo, rel(t.srcRel), ts, norm(`${t.title} ${artist.name} ${r.title}`), scanId); continue; }
           upTrack.run(albumId, artistId, t.title, t.trackNo, rel(t.srcRel), t.size, t.mtime, ts,
-            norm(`${t.title} ${artist.name} ${r.title}`), scanId);
+            norm(`${t.title} ${artist.name} ${r.title}`), scanId, t.releaseDate ?? null);
           trackCount++;
         }
       }

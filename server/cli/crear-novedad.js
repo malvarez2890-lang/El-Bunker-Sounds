@@ -39,7 +39,7 @@ export function crearNovedad({ db, argv }) {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const config = loadConfig();
-  const db = openDb(config.dataDir);
+  const db = openDb(config.dataDir, config.tz);
   const r = crearNovedad({ db, argv: process.argv.slice(2) });
   console.log(r.ok ? `✅ ${r.msg}` : `❌ ${r.msg}`);
   process.exit(r.ok ? 0 : 1);

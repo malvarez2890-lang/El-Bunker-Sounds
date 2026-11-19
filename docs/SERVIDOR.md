@@ -170,6 +170,15 @@ Lanzamiento: 21 de noviembre de 2026
 03. Tutto Sotto Controllo
 ```
 
+**Lanzamiento programado:** si ya tienes **todas** las canciones en la carpeta pero quieres que solo algunas suenen hasta cierto día, agrega al `TRACKLIST.txt` estas dos líneas:
+
+```
+Lanzamiento: 21 de noviembre de 2026
+Disponibles: 3, 4, 5, 8
+```
+
+Las canciones con esos números (los singles) suenan desde ya; las demás se ven en gris y **se liberan solas el día 21 a las 00:00 (hora de Chile)**, sin que toques nada. Si tienes activado "Avisar solo cuando llegue música nueva" (Administración), ese día se manda un aviso al celular de quienes lo activaron.
+
 Las canciones que tienen su WAV en la carpeta se escuchan; las demás aparecen en gris, y al tocarlas la app dice "Disponible pronto". Cuando llegue un WAV nuevo (por ejemplo `01. Pronti, Via!.wav`), esa canción **pasa sola de gris a escuchable**. Cuando estén todas, puedes borrar el `TRACKLIST.txt`.
 
 **Novedades:** en Administración → Novedades → "Nueva novedad" (título, texto corto, álbum que se abre al tocar). Aparece arriba en Inicio para todos. Puedes ocultarla o borrarla cuando quieras.
