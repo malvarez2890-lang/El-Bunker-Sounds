@@ -139,13 +139,24 @@ document.addEventListener('gesturestart', (e) => e.preventDefault());
 document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
 const vv = window.visualViewport;
 if (vv) {
+  // Solo se ajusta a mano cuando HAY teclado abierto. Sin teclado se usa la altura completa de la pantalla (100dvh): en iPhone,
+  // visualViewport a veces queda más chico (p. ej. tras cerrar el teclado) y dejaba una franja negra debajo de la barra de abajo.
+  const typing = () => { const el = document.activeElement; return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable); };
   const fit = () => {
-    document.documentElement.style.setProperty('--app-h', `${Math.round(vv.height)}px`);
-    document.body.classList.toggle('kbd', vv.height < window.innerHeight * 0.8);
+    const kbd = typing() && vv.height < window.innerHeight * 0.8;
+    if (kbd) document.documentElement.style.setProperty('--app-h', `${Math.round(vv.height)}px`);
+    else document.documentElement.style.removeProperty('--app-h');
+    document.body.classList.toggle('kbd', kbd);
     if (window.scrollY || vv.offsetTop) window.scrollTo(0, 0);
   };
+  const later = () => { fit(); setTimeout(fit, 250); setTimeout(fit, 800); };
   vv.addEventListener('resize', fit);
   vv.addEventListener('scroll', fit);
+  window.addEventListener('resize', later);
+  window.addEventListener('orientationchange', later);
+  window.addEventListener('pageshow', later);
+  document.addEventListener('focusout', later);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) later(); });
   fit();
 }
 
