@@ -195,3 +195,13 @@ Las canciones que tienen su WAV en la carpeta se escuchan; las demás aparecen e
 | La dirección no abre desde fuera | En Tailscale, la máquina `musica` debe estar conectada y con Funnel activo (`docker compose logs tailscale`). Revisa el paso 2. |
 | Una canción dice "Preparando audio…" mucho rato | Administración → "Reintentar errores". Si sigue, mira el motivo que aparece ahí. |
 | No aparece música nueva | Administración → "Buscar música nueva". La carpeta debe contener `Artista/<Artista>/...`. |
+
+### Revisar el TRACKLIST.txt
+
+Si una canción no queda en gris el día que debía, corre esto y mira qué entendió la app (solo lee, no cambia nada):
+
+```
+docker compose exec app node server/cli/revisar-tracklist.js
+```
+
+El archivo debe llamarse exactamente `TRACKLIST.txt`, estar dentro de la carpeta del álbum y tener las líneas `Lanzamiento: 21 de noviembre de 2026` y `Disponibles: 3, 4, 5, 8`. Después: `./scripts/sincronizar-musica.sh` y "Buscar música nueva" en Administración.

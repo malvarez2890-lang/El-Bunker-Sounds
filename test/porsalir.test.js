@@ -6,7 +6,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { makeApp } from './helpers.js';
-import { parseTracklist, parseDateText } from '../server/scanner.js';
+import { parseTracklist, parseDateText, decodeText } from '../server/scanner.js';
+import { revisar } from '../server/cli/revisar-tracklist.js';
+import { loadConfig } from '../server/config.js';
 
 const TRACKLIST = `PIÙ VELOCE
 LA VITA È UN GIOCO
@@ -26,6 +28,25 @@ Lanzamiento: 21 de noviembre de 2026
 12.  Quando Si Spengono le Luci
 13.  La Vita È Un Gioco
 `;
+
+describe('lectura más tolerante del TRACKLIST.txt', () => {
+  test('UTF-16 del Bloc de notas (con tildes) se entiende igual', () => {
+    const texto = 'Lanzamiento: 21 de noviembre de 2026\r\nDisponibles: 3, 4\r\n01. La Vita È Un Gioco\r\n';
+    for (const buf of [Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(texto, 'utf16le')]), Buffer.concat([Buffer.from([0xfe, 0xff]), Buffer.from(texto, 'utf16le').swap16()]), Buffer.from('\uFEFF' + texto, 'utf8')]) {
+      const r = parseTracklist(decodeText(buf));
+      assert.equal(r.releaseDate, '2026-11-21');
+      assert.deepEqual(r.available, [3, 4]);
+      assert.equal(r.entries[0].title, 'La Vita È Un Gioco');
+    }
+  });
+  test('otras formas de escribir la fecha y los disponibles', () => {
+    const r = parseTracklist('Fecha de lanzamiento: 21 noviembre 2026\nYa disponibles: 3, 4, 5 y 8\n01. A');
+    assert.equal(r.releaseDate, '2026-11-21');
+    assert.deepEqual(r.available, [3, 4, 5, 8]);
+    assert.equal(parseTracklist('Sencillos: 2\n01. A').available[0], 2);
+    assert.equal(parseDateText('21 de noviembre'), `${new Date().getFullYear()}-11-21`);
+  });
+});
 
 describe('lectura del TRACKLIST.txt', () => {
   test('canciones numeradas y fecha de lanzamiento', () => {
@@ -219,5 +240,32 @@ describe('lanzamiento programado: el álbum completo ya está en la carpeta pero
     await t.ctx.library.scan();
     a = (await F('GET', `/api/albums/${albumId}`)).json();
     assert.equal(a.trackCount, 6, 'sin fecha tampoco se programa');
+  });
+});
+
+describe('comando de revisión (revisar-tracklist)', () => {
+  test('explica qué entendió y qué hará con cada canción; avisa si faltan líneas', async () => {
+    process.env.EBS_FAKE_TODAY = '2026-11-19';
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ebs-revisar-'));
+    const album = path.join(dir, 'Artista', 'PIÙ VELOCE', 'Albums', '05. La Vita È Un Gioco');
+    fs.mkdirSync(album, { recursive: true });
+    for (const [i, n] of ['01. Pronti, Via!', '03. Tutto Sotto Controllo'].entries()) execFileSync('ffmpeg', ['-nostdin', '-y', '-v', 'error', '-f', 'lavfi', '-i', `sine=frequency=${300 + i * 80}:duration=1`, path.join(album, `${n}.wav`)]);
+    const cfg = loadConfig({ MUSIC_DIR: dir, DATA_DIR: dir });
+    fs.writeFileSync(path.join(album, 'TRACKLIST.txt'), '01. Pronti, Via!\n02. Il Re del Bar\n03. Tutto Sotto Controllo\n');
+    let txt = await revisar(cfg);
+    assert.match(txt, /No encontré una línea “Lanzamiento/);
+    assert.match(txt, /No encontré una línea “Disponibles/);
+    assert.match(txt, /02\. Il Re del Bar → en gris: todavía no tiene archivo/);
+    fs.writeFileSync(path.join(album, 'TRACKLIST.txt'), 'Lanzamiento: 21 de noviembre de 2026\nDisponibles: 3\n01. Pronti, Via!\n02. Il Re del Bar\n03. Tutto Sotto Controllo\n');
+    txt = await revisar(cfg);
+    assert.match(txt, /Lanzamiento: 2026-11-21/);
+    assert.match(txt, /Disponibles desde ya: 3/);
+    assert.match(txt, /01\. Pronti, Via! → 🔒 en gris hasta el 2026-11-21/);
+    assert.match(txt, /03\. Tutto Sotto Controllo → 🔊 suena ahora/);
+    process.env.EBS_FAKE_TODAY = '2026-11-21';
+    assert.match(await revisar(cfg), /01\. Pronti, Via! → 🔊 suena ahora/);
+    delete process.env.EBS_FAKE_TODAY;
+    fs.unlinkSync(path.join(album, 'TRACKLIST.txt'));
+    assert.match(await revisar(cfg), /No encontré ningún TRACKLIST\.txt/);
   });
 });

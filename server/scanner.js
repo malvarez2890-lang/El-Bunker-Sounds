@@ -24,9 +24,16 @@ export function parseDateText(text) {
   if (m) return `${m[1]}-${pad2(m[2])}-${pad2(m[3])}`;
   m = /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/.exec(t);
   if (m) return `${m[3]}-${pad2(m[2])}-${pad2(m[1])}`;
-  m = /^(\d{1,2})\s+de\s+([a-z]+)(?:\s+de(?:l)?\s+(\d{4}))?$/.exec(t);
+  m = /^(\d{1,2})\s+(?:de\s+)?([a-z]+)(?:\s+(?:de(?:l)?\s+)?(\d{4}))?$/.exec(t);
   if (m && MONTHS[m[2]]) return `${m[3] || new Date().getFullYear()}-${pad2(MONTHS[m[2]])}-${pad2(m[1])}`;
   return null;
+}
+
+/** El Bloc de notas puede guardar en UTF-16 ("Unicode"): se detecta por su marca inicial y se convierte. */
+export function decodeText(buf) {
+  if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) return buf.subarray(2).toString('utf16le');
+  if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) return Buffer.from(buf.subarray(2)).swap16().toString('utf16le');
+  return buf.toString('utf8');
 }
 
 /**
@@ -40,9 +47,9 @@ export function parseTracklist(text) {
   for (const raw of String(text).replace(/^\uFEFF/, '').split(/\r?\n/)) {
     const line = raw.trim();
     if (!line || line.startsWith('#')) continue;
-    const kv = /^(lanzamiento|fecha|release)\s*[:=]\s*(.+)$/i.exec(line);
+    const kv = /^(fecha\s+de\s+lanzamiento|lanzamiento|fecha|release)\s*[:=]\s*(.+)$/i.exec(line);
     if (kv) { releaseDate = parseDateText(kv[2]) || releaseDate; continue; }
-    const av = /^(disponibles?|singles?|ya disponibles?)\s*[:=]\s*(.+)$/i.exec(line);
+    const av = /^((?:ya\s+)?disponibles?(?:\s+ya|\s+desde\s+ya)?|singles?|sencillos?)\s*[:=]\s*(.+)$/i.exec(line);
     if (av) { for (const n of av[2].match(/\d{1,3}/g) || []) available.push(Number(n)); continue; }
     const m = /^(\d{1,3})\s*[.\-_)]\s*(.+)$/.exec(line);
     if (m) entries.push({ no: Number(m[1]), title: nfc(m[2].trim()) });
@@ -104,13 +111,15 @@ async function readAlbumDir(root, relDir, kind, artistName) {
 
   // TRACKLIST.txt: canciones "por salir". Las que tienen archivo se escuchan; el resto aparece en gris ("disponible pronto").
   let releaseDate = null;
+  let tracklistInfo = null; // lo que se entendió del TRACKLIST.txt (para el comando de revisión)
   const tl = files.find((f) => f.name.toLowerCase() === 'tracklist.txt');
   if (tl) {
     try {
       const st = await fs.stat(path.join(abs, tl.name));
       if (st.size <= 64 * 1024) {
-        const parsed = parseTracklist(await fs.readFile(path.join(abs, tl.name), 'utf8'));
+        const parsed = parseTracklist(decodeText(await fs.readFile(path.join(abs, tl.name))));
         releaseDate = parsed.releaseDate;
+        tracklistInfo = { entries: parsed.entries.length, releaseDate: parsed.releaseDate, available: parsed.available };
         const taken = new Set();
         const drop = new Set();
         for (const e of parsed.entries) {
@@ -132,7 +141,7 @@ async function readAlbumDir(root, relDir, kind, artistName) {
     } catch { /* un TRACKLIST.txt ilegible se ignora */ }
   }
 
-  const release = { folderRel: relDir, kind, title, orderNo: no, artistName, tracks, releaseDate, coverRel: null, backRel: null };
+  const release = { folderRel: relDir, kind, title, orderNo: no, artistName, tracks, releaseDate, tracklist: tl ? (tracklistInfo || { unreadable: true }) : null, coverRel: null, backRel: null };
   if (front) {
     release.coverRel = path.join(relDir, front.name);
     release.coverMtime = (await statOf(path.join(root, release.coverRel))).mtime;
