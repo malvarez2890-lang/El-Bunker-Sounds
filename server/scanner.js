@@ -109,11 +109,17 @@ async function readAlbumDir(root, relDir, kind, artistName) {
         const parsed = parseTracklist(await fs.readFile(path.join(abs, tl.name), 'utf8'));
         releaseDate = parsed.releaseDate;
         const taken = new Set();
+        const drop = new Set();
         for (const e of parsed.entries) {
-          const real = tracks.find((t) => !taken.has(t) && (t.trackNo === e.no || looseKey(t.title) === looseKey(e.title)));
-          if (real) { taken.add(real); real.title = e.title; real.trackNo = e.no; } // el título de la lista es el "oficial"
+          // Puede haber dos archivos para la misma canción (por ejemplo, la versión con el nombre viejo y la nueva, porque la copia a
+          // tu servidor solo agrega archivos). Se elige UNO: el que se llama como dice la lista y, si empatan, el más reciente.
+          const cands = tracks.filter((t) => !taken.has(t) && (t.trackNo === e.no || looseKey(t.title) === looseKey(e.title)));
+          cands.sort((a, b) => (looseKey(b.title) === looseKey(e.title)) - (looseKey(a.title) === looseKey(e.title)) || (b.mtime ?? 0) - (a.mtime ?? 0));
+          const real = cands[0];
+          if (real) { taken.add(real); real.title = e.title; real.trackNo = e.no; for (const other of cands.slice(1)) drop.add(other); } // el título de la lista es el "oficial"
           else tracks.push({ srcRel: path.join(relDir, `#por-salir-${pad2(e.no)}`), title: e.title, trackNo: e.no, upcoming: true });
         }
+        for (let i = tracks.length - 1; i >= 0; i--) if (drop.has(tracks[i])) tracks.splice(i, 1); // las versiones repetidas no se muestran (el archivo queda en disco)
         tracks.sort((a, b) => (a.trackNo ?? 1e6) - (b.trackNo ?? 1e6) || collator.compare(a.title, b.title));
       }
     } catch { /* un TRACKLIST.txt ilegible se ignora */ }

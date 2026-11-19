@@ -111,12 +111,35 @@ describe('álbum con 4 canciones listas y 9 por salir', () => {
     assert.equal((await F('GET', `/api/stream/${first.id}`)).statusCode, 200);
   });
 
+  test('renombraste una canción: el archivo viejo y el nuevo conviven en el servidor, pero se muestra solo uno (el que dice la lista)', async () => {
+    const album = path.join(dir, 'Artista', 'PIÙ VELOCE', 'Albums', '05. La Vita È Un Gioco');
+    // la lista ahora llama a la 8 "Birra Fina" y suma una canción nueva (la 14)
+    fs.writeFileSync(path.join(album, 'TRACKLIST.txt'), TRACKLIST.replace('08.  Birra Elegante', '08.  Birra Fina') + '14.  Bonus Notturno\n');
+    execFileSync('ffmpeg', ['-nostdin', '-y', '-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=900:duration=1', path.join(album, '08. Birra Fina.wav')]);
+    await t.ctx.library.scan(); await t.ctx.transcoder.whenIdle();
+    let a = (await F('GET', `/api/albums/${albumId}`)).json();
+    const eights = a.tracks.filter((x) => x.trackNo === 8);
+    assert.equal(eights.length, 1, 'una sola canción número 8');
+    assert.equal(eights[0].title, 'Birra Fina');
+    assert.equal(eights[0].ready, true);
+    assert.equal(a.tracks.some((x) => /Elegante/.test(x.title)), false, 'el nombre viejo ya no aparece');
+    assert.equal(a.totalCount, 14);
+    assert.equal(a.tracks.at(-1).title, 'Bonus Notturno');
+    assert.equal(a.tracks.at(-1).upcoming, true);
+    // si la lista vuelve a llamarla como antes, gana el archivo que se llama así (aunque sea el más viejo)
+    fs.writeFileSync(path.join(album, 'TRACKLIST.txt'), TRACKLIST);
+    await t.ctx.library.scan();
+    a = (await F('GET', `/api/albums/${albumId}`)).json();
+    assert.equal(a.tracks.filter((x) => x.trackNo === 8).length, 1);
+    assert.equal(a.tracks.find((x) => x.trackNo === 8).title, 'Birra Elegante');
+  });
+
   test('si se borra el TRACKLIST.txt, quedan solo las canciones con archivo', async () => {
     const album = path.join(dir, 'Artista', 'PIÙ VELOCE', 'Albums', '05. La Vita È Un Gioco');
     fs.unlinkSync(path.join(album, 'TRACKLIST.txt'));
     await t.ctx.library.scan();
     const a = (await F('GET', `/api/albums/${albumId}`)).json();
-    assert.equal(a.tracks.length, 5);
-    assert.equal(a.totalCount, 5);
+    assert.equal(a.tracks.length, 6); // sin lista no se elige nada: se ven todos los archivos (incluidos los dos de la 8)
+    assert.equal(a.totalCount, 6);
   });
 });
