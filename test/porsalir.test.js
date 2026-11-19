@@ -269,3 +269,28 @@ describe('comando de revisión (revisar-tracklist)', () => {
     assert.match(await revisar(cfg), /No encontré ningún TRACKLIST\.txt/);
   });
 });
+
+describe('álbum "próximamente" (solo TRACKLIST y portada, sin audio)', () => {
+  test('aparece con todas sus canciones en gris, sin nada que suene', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ebs-soon-'));
+    const album = path.join(dir, 'Artista', 'PIÙ VELOCE', 'Albums', '06. FRAN');
+    fs.mkdirSync(album, { recursive: true });
+    execFileSync('ffmpeg', ['-nostdin', '-y', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=red:s=64x64', '-frames:v', '1', path.join(album, 'PORTADA.png')]);
+    fs.writeFileSync(path.join(album, 'TRACKLIST.txt'), 'Lanzamiento: 12 de diciembre de 2026\n01. Via Senza Fine\n02. Un Piccolo Ballo\n03. Le Cose Vere\n');
+    const t = await makeApp({ MUSIC_DIR: dir });
+    try {
+      const { cookie } = await t.login('admin@test.cl');
+      const list = (await t.app.inject({ method: 'GET', url: '/api/albums', headers: { cookie } })).json().albums;
+      const a = list.find((x) => x.title === 'FRAN');
+      assert.ok(a, 'el álbum existe');
+      assert.equal(a.trackCount, 0);
+      assert.equal(a.totalCount, 3);
+      assert.equal(a.releaseDate, '2026-12-12');
+      const det = (await t.app.inject({ method: 'GET', url: `/api/albums/${a.id}`, headers: { cookie } })).json();
+      assert.equal(det.tracks.length, 3);
+      assert.ok(det.tracks.every((x) => x.upcoming && !x.ready));
+      const s = await t.app.inject({ method: 'GET', url: `/api/stream/${det.tracks[0].id}`, headers: { cookie } });
+      assert.equal(s.statusCode, 404);
+    } finally { await t.close(); }
+  });
+});

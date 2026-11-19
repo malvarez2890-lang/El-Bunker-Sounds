@@ -337,6 +337,7 @@ body.has-mini .toast { --mini-h: 68px; }
 }
 
 /* ---------- extras ---------- */
+.mixlabel.soon { letter-spacing: .08em; font-size: 9px; }
 .mixlabel { position: absolute; left: 8px; bottom: 8px; padding: 2px 8px; border-radius: 6px; background: rgba(9, 10, 12, .72); color: var(--gold); font: 700 10px var(--font-body); letter-spacing: .14em; }
 .pl-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .pl-row .main { flex: 1; min-width: 0; text-align: left; }

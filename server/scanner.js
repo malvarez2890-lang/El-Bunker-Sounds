@@ -91,7 +91,8 @@ async function readAlbumDir(root, relDir, kind, artistName) {
   const entries = await listDir(abs);
   const files = entries.filter((e) => e.isFile());
   const audio = files.filter((f) => AUDIO_EXT.has(extOf(f.name)));
-  if (!audio.length) return null;
+  const tlFile = files.find((f) => f.name.toLowerCase() === 'tracklist.txt');
+  if (!audio.length && !tlFile) return null; // sin audio solo vale si hay TRACKLIST.txt (álbum "próximamente")
 
   const images = files.filter((f) => IMAGE_EXT.has(extOf(f.name)));
   const front = images.find((f) => FRONT_NAMES.has(norm(stem(f.name)).trim()));
@@ -141,6 +142,7 @@ async function readAlbumDir(root, relDir, kind, artistName) {
     } catch { /* un TRACKLIST.txt ilegible se ignora */ }
   }
 
+  if (!tracks.length) return null;
   const release = { folderRel: relDir, kind, title, orderNo: no, artistName, tracks, releaseDate, tracklist: tl ? (tracklistInfo || { unreadable: true }) : null, coverRel: null, backRel: null };
   if (front) {
     release.coverRel = path.join(relDir, front.name);
