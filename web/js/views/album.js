@@ -9,16 +9,15 @@ export async function album(ctx, id) {
   const ready = a.tracks.filter((t) => t.ready).length;
   const real = a.tracks.filter((t) => !t.upcoming).length;
   const pending = a.totalCount > a.trackCount;
-  const soon = a.totalCount > 0 && !a.trackCount;
   const fecha = (iso) => { const [y, m, d] = String(iso || '').split('-').map(Number); return y ? new Date(y, m - 1, d).toLocaleDateString('es-CL', { day: 'numeric', month: 'long' }) : ''; };
   const actions = h('div', { class: 'actions' },
     h('button', { class: 'btn btn-primary', disabled: !ready, onclick: () => player.playTracks(a.tracks, 0, { shuffle: false }) }, icon('play'), 'Reproducir'),
     h('button', { class: 'icon-btn ring', disabled: !ready, 'aria-label': 'Reproducir en orden aleatorio', onclick: () => player.playTracks(a.tracks, 0, { shuffle: true }) }, icon('shuffle')),
     a.hasBack ? h('button', { class: 'icon-btn ring', 'aria-label': 'Ver contraportada', onclick: () => lightbox(coverUrl(a.id, 'back', a.backV), `Contraportada · ${a.title}`) }, icon('photo')) : null);
   root.append(h('div', { class: 'detail-head' }, cover(a, 'l'), h('h1', null, a.title),
-    h('div', { class: 'meta' }, h('a', { href: `#/artista/${a.artistId}` }, a.artistName), ` · ${KIND_LABEL[a.kind]} · ${soon ? `Próximamente · ${plural(a.totalCount, 'canción', 'canciones')}` : pending ? `${a.trackCount} de ${a.totalCount} canciones` : plural(a.trackCount, 'canción', 'canciones')} ${soon ? '' : `· ${fmtMinutes(a.duration)}`}`),
+    h('div', { class: 'meta' }, h('a', { href: `#/artista/${a.artistId}` }, a.artistName), ` · ${KIND_LABEL[a.kind]} · ${pending ? `${a.trackCount} de ${a.totalCount} canciones` : plural(a.trackCount, 'canción', 'canciones')} · ${fmtMinutes(a.duration)}`),
     actions));
-  if (pending && a.releaseDate) root.append(h('div', { class: 'muted small', style: { 'margin-bottom': '8px', 'text-align': 'center' } }, `${soon ? 'Sale' : 'Álbum completo'} el ${fecha(a.releaseDate)}`));
+  if (pending && a.releaseDate) root.append(h('div', { class: 'muted small', style: { 'margin-bottom': '8px', 'text-align': 'center' } }, `Álbum completo el ${fecha(a.releaseDate)}`));
   if (ready < real) root.append(h('div', { class: 'muted small', style: { 'margin-bottom': '8px', 'text-align': 'center' } }, `Preparando audio: ${real - ready} canciones en proceso…`));
   root.append(h('div', { class: 'tracklist' }, ...a.tracks.map((t, i) => trackRow(t, { list: a.tracks, index: i, number: t.trackNo ?? i + 1 }))));
   return root;

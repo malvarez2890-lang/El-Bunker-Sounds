@@ -26,14 +26,17 @@ const like = (s) => `%${s.replace(/[\\%_]/g, (c) => '\\' + c)}%`;
 export function createLibraryQueries(db) {
   const tracks = (uid, where = '', params = [], tail = '') =>
     db.prepare(`${TRACK_SQL} ${where} ${tail}`).all(uid, ...params).map(fixTrack);
-  const albums = (where = '', params = [], tail = '') =>
+  // Un álbum sin ninguna canción con archivo (solo TRACKLIST y portada) NO se muestra en la app: solo sirve para la tarjeta "Próximamente".
+  const HAS_AUDIO = `EXISTS(SELECT 1 FROM tracks tt WHERE tt.album_id = al.id AND tt.missing = 0 AND NOT ${UPCOMING.replace(/\bt\./g, 'tt.')})`;
+  const albumsAny = (where = '', params = [], tail = '') =>
     db.prepare(`${ALBUM_SQL} ${where} ${tail}`).all(...params).map(fixAlbum);
+  const albums = (where = '', params = [], tail = '') => albumsAny(`AND ${HAS_AUDIO} ${where}`, params, tail);
 
   const ORDER_ALBUM_TRACKS = 'ORDER BY COALESCE(t.track_no, 1000000), t.title COLLATE NOCASE';
   const NEWEST_ALBUMS = 'ORDER BY al.added_at DESC, COALESCE(al.order_no, 0) DESC, al.id DESC';
 
   return {
-    tracks, albums,
+    tracks, albums, albumsAny,
 
     album(uid, id) {
       const [album] = albums('AND al.id = ?', [id]);
@@ -47,9 +50,9 @@ export function createLibraryQueries(db) {
 
     artists() {
       return db.prepare(`SELECT ar.id, ar.name,
-        (SELECT COUNT(*) FROM albums al WHERE al.artist_id = ar.id AND al.missing = 0) AS albumCount,
+        (SELECT COUNT(*) FROM albums al WHERE al.artist_id = ar.id AND al.missing = 0 AND ${HAS_AUDIO}) AS albumCount,
         (SELECT COUNT(*) FROM tracks t WHERE t.artist_id = ar.id AND t.missing = 0) AS trackCount,
-        (SELECT al.id FROM albums al WHERE al.artist_id = ar.id AND al.missing = 0 AND al.cover_rel IS NOT NULL
+        (SELECT al.id FROM albums al WHERE al.artist_id = ar.id AND al.missing = 0 AND ${HAS_AUDIO} AND al.cover_rel IS NOT NULL
            ORDER BY al.added_at DESC, COALESCE(al.order_no,0) DESC LIMIT 1) AS coverAlbumId
         FROM artists ar WHERE ar.missing = 0 ORDER BY ar.name COLLATE NOCASE`).all();
     },

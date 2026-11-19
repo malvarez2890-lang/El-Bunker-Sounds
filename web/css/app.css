@@ -337,7 +337,6 @@ body.has-mini .toast { --mini-h: 68px; }
 }
 
 /* ---------- extras ---------- */
-.mixlabel.soon { letter-spacing: .08em; font-size: 9px; }
 .mixlabel { position: absolute; left: 8px; bottom: 8px; padding: 2px 8px; border-radius: 6px; background: rgba(9, 10, 12, .72); color: var(--gold); font: 700 10px var(--font-body); letter-spacing: .14em; }
 .pl-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .pl-row .main { flex: 1; min-width: 0; text-align: left; }
@@ -470,6 +469,11 @@ body.has-mini .toast { --mini-h: 68px; }
 /* novedades (tarjeta del administrador) y destacado compacto */
 .hero.news { border: 1px solid rgba(255, 203, 36, .35); margin-top: 12px; }
 .hero.news.noart { grid-template-columns: 1fr; }
+.hero.news.soon { border: 2px solid var(--gold); background: linear-gradient(135deg, rgba(255, 203, 36, .16), rgba(244, 169, 0, .04) 60%), var(--panel); box-shadow: 0 0 24px rgba(255, 203, 36, .22); }
+.hero.news.soon .eyebrow { color: var(--gold); font-size: 15px; font-weight: 800; letter-spacing: .2em; text-transform: uppercase; animation: soonpulse 2.4s ease-in-out infinite; }
+.hero.news.soon h2 { font-size: 24px; }
+@keyframes soonpulse { 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { .hero.news.soon .eyebrow { animation: none; } }
 .hero.news .news-body { margin: 6px 0 0; color: var(--muted); font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; }
 .feat-row { display: flex; align-items: center; gap: 12px; background: var(--card); border-radius: var(--r-md); padding: 10px 12px 10px 10px; margin: 12px 0; }
 .feat-row .cover { width: 56px; height: 56px; flex: none; border-radius: 10px; }

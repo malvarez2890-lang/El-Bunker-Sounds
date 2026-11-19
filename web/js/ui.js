@@ -206,9 +206,7 @@ function markRow(row, cur, playing) {
 player.on('change', (s) => document.querySelectorAll('.row[data-tid]').forEach((r) => markRow(r, s.queue[s.index], s.playing)));
 
 export function albumCard(album) {
-  const c = cover(album, 'm');
-  if (album.totalCount > 0 && !album.trackCount) c.append(h('div', { class: 'mixlabel soon' }, 'PRÓXIMAMENTE')); // álbum sin ninguna canción lista
-  return h('a', { class: 'card', href: `#/album/${album.id}` }, c,
+  return h('a', { class: 'card', href: `#/album/${album.id}` }, cover(album, 'm'),
     h('div', { class: 't' }, album.title), h('div', { class: 's' }, `${album.artistName} · ${KIND_LABEL[album.kind] || 'Álbum'}`));
 }
 export function artistCard(artist) {

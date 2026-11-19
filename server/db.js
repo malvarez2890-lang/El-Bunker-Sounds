@@ -134,6 +134,10 @@ const MIGRATIONS = [
   `
   ALTER TABLE tracks ADD COLUMN release_date TEXT;
   `,
+  // 6: novedades "próximamente" (tarjeta destacada arriba de todo)
+  `
+  ALTER TABLE news ADD COLUMN soon INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 /** La fecha de hoy (YYYY-MM-DD) en la zona horaria de la app. Para pruebas se puede forzar con EBS_FAKE_TODAY. */

@@ -50,14 +50,15 @@ const fechaLarga = (iso) => { const [y, m, d] = String(iso || '').split('-').map
 /** Tarjeta de novedad (la publica el administrador): título, texto y, si tiene álbum, su portada y un botón para verlo. */
 function newsCard(n) {
   const a = n.album;
-  const sub = a && a.totalCount > a.trackCount && a.releaseDate ? `Álbum completo el ${fechaLarga(a.releaseDate)}` : null;
-  return h('div', { class: `hero news${a ? '' : ' noart'}` },
+  const sub = a && !n.soon && a.totalCount > a.trackCount && a.releaseDate ? `Álbum completo el ${fechaLarga(a.releaseDate)}` : null;
+  const open = a && !a.hidden; // un álbum que aún no tiene canciones no se puede abrir: solo se ve su portada
+  return h('div', { class: `hero news${n.soon ? ' soon' : ''}${a ? '' : ' noart'}` },
     h('div', { class: 'txt' },
-      h('div', null, h('div', { class: 'eyebrow' }, 'Novedad'), h('h2', null, n.title),
+      h('div', null, h('div', { class: 'eyebrow' }, n.soon ? '¡Próximamente!' : 'Novedad'), h('h2', null, n.title),
         n.body ? h('p', { class: 'news-body' }, n.body) : null,
         sub ? h('div', { class: 'muted small', style: { 'margin-top': '6px' } }, sub) : null),
-      h('div', null, a ? h('a', { class: 'btn btn-primary', href: `#/album/${a.id}` }, icon('disc'), 'Ver álbum') : null, remindButton())),
-    a ? h('a', { class: 'art', href: `#/album/${a.id}`, 'aria-label': `Ver ${a.title}` }, cover(a, 'm')) : null);
+      h('div', null, open ? h('a', { class: 'btn btn-primary', href: `#/album/${a.id}` }, icon('disc'), 'Ver álbum') : null, remindButton())),
+    a ? (open ? h('a', { class: 'art', href: `#/album/${a.id}`, 'aria-label': `Ver ${a.title}` }, cover(a, 'm')) : h('div', { class: 'art' }, cover(a, 'm'))) : null);
 }
 
 /** Botón "Avísame" (solo si los avisos están apagados y se pueden activar): un toque y listo. */

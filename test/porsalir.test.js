@@ -271,26 +271,34 @@ describe('comando de revisión (revisar-tracklist)', () => {
 });
 
 describe('álbum "próximamente" (solo TRACKLIST y portada, sin audio)', () => {
-  test('aparece con todas sus canciones en gris, sin nada que suene', async () => {
+  test('no aparece en la app, pero sirve para una tarjeta "¡Próximamente!" con su portada', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ebs-soon-'));
     const album = path.join(dir, 'Artista', 'PIÙ VELOCE', 'Albums', '06. FRAN');
     fs.mkdirSync(album, { recursive: true });
     execFileSync('ffmpeg', ['-nostdin', '-y', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=red:s=64x64', '-frames:v', '1', path.join(album, 'PORTADA.png')]);
-    fs.writeFileSync(path.join(album, 'TRACKLIST.txt'), 'Lanzamiento: 12 de diciembre de 2026\n01. Via Senza Fine\n02. Un Piccolo Ballo\n03. Le Cose Vere\n');
+    fs.writeFileSync(path.join(album, 'TRACKLIST.txt'), '01. Via Senza Fine\n02. Un Piccolo Ballo\n03. Le Cose Vere\n');
     const t = await makeApp({ MUSIC_DIR: dir });
     try {
       const { cookie } = await t.login('admin@test.cl');
-      const list = (await t.app.inject({ method: 'GET', url: '/api/albums', headers: { cookie } })).json().albums;
-      const a = list.find((x) => x.title === 'FRAN');
-      assert.ok(a, 'el álbum existe');
-      assert.equal(a.trackCount, 0);
-      assert.equal(a.totalCount, 3);
-      assert.equal(a.releaseDate, '2026-12-12');
-      const det = (await t.app.inject({ method: 'GET', url: `/api/albums/${a.id}`, headers: { cookie } })).json();
-      assert.equal(det.tracks.length, 3);
-      assert.ok(det.tracks.every((x) => x.upcoming && !x.ready));
-      const s = await t.app.inject({ method: 'GET', url: `/api/stream/${det.tracks[0].id}`, headers: { cookie } });
-      assert.equal(s.statusCode, 404);
+      const get = async (url) => t.app.inject({ method: 'GET', url, headers: { cookie } });
+      const albums = (await get('/api/albums')).json().albums;
+      assert.ok(!albums.some((x) => x.title === 'FRAN'), 'no sale en la lista de álbumes');
+      const home = (await get('/api/home')).json();
+      assert.ok(!home.latest.some((x) => x.title === 'FRAN'));
+      const choices = (await get('/api/admin/news-albums')).json().albums;
+      const fran = choices.find((x) => x.title === 'FRAN');
+      assert.ok(fran && fran.hidden, 'el administrador sí lo puede elegir para una novedad');
+      assert.equal((await get(`/api/albums/${fran.id}`)).statusCode, 404, 'no se puede abrir');
+      const res = await t.app.inject({ method: 'POST', url: '/api/admin/news', headers: { cookie }, payload: { title: 'FRAN', body: 'Muy pronto', albumId: fran.id, soon: true } });
+      assert.equal(res.statusCode, 200);
+      const n = (await get('/api/home')).json().news[0];
+      assert.equal(n.soon, true);
+      assert.equal(n.album.hidden, true);
+      assert.equal(n.album.hasCover, true);
+      assert.equal((await get(`/api/cover/${fran.id}/m`)).statusCode, 200, 'su portada se ve en la tarjeta');
+      // la "próximamente" va primero, aunque haya una novedad más nueva
+      await t.app.inject({ method: 'POST', url: '/api/admin/news', headers: { cookie }, payload: { title: 'Otra' } });
+      assert.equal((await get('/api/home')).json().news[0].title, 'FRAN');
     } finally { await t.close(); }
   });
 });

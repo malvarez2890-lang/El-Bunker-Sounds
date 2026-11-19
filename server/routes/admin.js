@@ -48,7 +48,8 @@ export default async function adminRoutes(app, { auth, db, library, transcoder, 
   });
 
   // ---------- novedades ----------
-  const announce = (item) => push.notifyAll({ title: item.title, body: item.body || 'Toca para verla', url: item.album ? `/#/album/${item.album.id}` : '/', tag: `news-${item.id}` });
+  const announce = (item) => push.notifyAll({ title: item.title, body: item.body || 'Toca para verla', url: item.album && !item.album.hidden ? `/#/album/${item.album.id}` : '/', tag: `news-${item.id}` });
+  app.get('/api/admin/news-albums', guard, async () => ({ albums: news.albumChoices() }));
   app.get('/api/admin/news', guard, async () => ({ news: news.list({ all: true }) }));
   app.post('/api/admin/news', guard, async (req, reply) => {
     const item = news.create(req.body || {});

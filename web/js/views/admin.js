@@ -85,24 +85,25 @@ export async function admin(ctx) {
   // ---- novedades: tarjetas que ven todos arriba en Inicio ----
   async function openNewsForm(item) {
     let albums = [];
-    try { albums = (await get('/api/albums')).albums; } catch { /* sin lista de álbumes */ }
+    try { albums = (await get('/api/admin/news-albums')).albums; } catch { /* sin lista de álbumes */ }
     openSheet((box, o) => {
       const title = h('input', { class: 'field', value: item?.title || '', maxLength: 80, 'aria-label': 'Título', placeholder: 'Título (ej. Próximo lanzamiento)', autocomplete: 'off' });
       const body = h('textarea', { class: 'field area', maxLength: 500, 'aria-label': 'Texto', placeholder: 'Texto corto (opcional)' }, item?.body || '');
       const sel = h('select', { class: 'field', 'aria-label': 'Álbum que se abre al tocar' },
         h('option', { value: '' }, 'Sin álbum'), ...albums.map((a) => h('option', { value: String(a.id), selected: item?.album?.id === a.id }, `${a.artistName} · ${a.title}`)));
       const active = h('input', { type: 'checkbox', checked: item ? !!item.active : true });
+      const soon = h('input', { type: 'checkbox', checked: !!item?.soon });
       const notify = h('input', { type: 'checkbox', checked: !item }); // por defecto, las novedades nuevas se avisan al celular
       const save = async () => {
         if (!title.value.trim()) { toast('Escribe un título.'); return; }
-        const payload = { title: title.value, body: body.value, albumId: sel.value ? Number(sel.value) : null, active: active.checked, notify: notify.checked };
+        const payload = { title: title.value, body: body.value, albumId: sel.value ? Number(sel.value) : null, active: active.checked, soon: soon.checked, notify: notify.checked };
         try {
           const r = await post(item ? `/api/admin/news/${item.id}` : '/api/admin/news', payload);
           o.close(); toast(r.push ? `Novedad guardada · aviso enviado a ${r.push.sent} celular${r.push.sent === 1 ? '' : 'es'}` : 'Novedad guardada'); loadNews();
         } catch (e) { toast(errorText(e)); }
       };
       box.append(h('h3', null, item ? 'Editar novedad' : 'Nueva novedad'), title, h('div', { style: { height: '10px' } }), body,
-        h('div', { style: { height: '10px' } }), sel, h('label', { class: 'check' }, active, 'Mostrar en Inicio'), h('label', { class: 'check' }, notify, 'Enviar aviso al celular de todos'),
+        h('div', { style: { height: '10px' } }), sel, h('label', { class: 'check' }, soon, '¡PRÓXIMAMENTE! (tarjeta destacada arriba de todo)'), h('label', { class: 'check' }, active, 'Mostrar en Inicio'), h('label', { class: 'check' }, notify, 'Enviar aviso al celular de todos'),
         h('div', { class: 'btns', style: { 'margin-top': '16px' } }, h('button', { class: 'btn btn-ghost', onclick: () => o.close() }, 'Cancelar'), h('button', { class: 'btn btn-primary', onclick: save }, 'Guardar')));
     });
   }
