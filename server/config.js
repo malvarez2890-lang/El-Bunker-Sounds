@@ -24,6 +24,8 @@ export function loadConfig(overrides = {}) {
     tz: e.APP_TZ || 'America/Santiago', // zona horaria para fechas de lanzamiento y versión
     sessionDays: Number(e.SESSION_DAYS || 90),
     mp3Bitrate: e.MP3_BITRATE || '320k',
+    // Avisos de lanzamiento: solo entre estas horas (hora de APP_TZ) para no despertar a nadie; pausa entre correos.
+    launch: { hours: (e.LAUNCH_HOURS || '9-21').split('-').map(Number).slice(0, 2), pauseMs: Number(e.LAUNCH_MAIL_PAUSE_MS ?? 1500) },
     scanIntervalMin: Number(e.SCAN_INTERVAL_MIN ?? 15),
     mail: {
       mode: e.MAIL_MODE || (e.SMTP_USER ? 'smtp' : 'file'), // 'smtp' | 'file'

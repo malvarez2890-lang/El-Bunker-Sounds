@@ -1,5 +1,5 @@
 // Avisos al celular: activar/desactivar (cada persona) y enviar/probar (administrador).
-export default async function pushRoutes(app, { auth, push }) {
+export default async function pushRoutes(app, { auth, push, launch }) {
   const user = { preHandler: (req, reply, done) => (auth.needActive(req, reply) ? done() : undefined) };
   const admin = (max = 10) => ({ preHandler: (req, reply, done) => (auth.needAdmin(req, reply) ? done() : undefined), config: { rateLimit: { max, timeWindow: '1 minute' } } });
 
@@ -11,11 +11,13 @@ export default async function pushRoutes(app, { auth, push }) {
   });
   app.post('/api/push/unsubscribe', user, async (req) => { push.unsubscribe(req.user.id, req.body?.endpoint); return { ok: true }; });
 
-  app.get('/api/admin/push', admin(60), async () => ({ ...push.stats(), autoNewMusic: push.autoNewMusic() }));
+  app.get('/api/admin/push', admin(60), async () => ({ ...push.stats(), autoNewMusic: push.autoNewMusic(), autoLaunch: launch.enabled() }));
   app.post('/api/admin/push/settings', admin(), async (req, reply) => {
-    if (typeof req.body?.autoNewMusic !== 'boolean') return reply.code(400).send({ error: 'datos_invalidos' });
-    push.setAutoNewMusic(req.body.autoNewMusic);
-    return { ...push.stats(), autoNewMusic: push.autoNewMusic() };
+    const b = req.body || {};
+    if (typeof b.autoNewMusic !== 'boolean' && typeof b.autoLaunch !== 'boolean') return reply.code(400).send({ error: 'datos_invalidos' });
+    if (typeof b.autoNewMusic === 'boolean') push.setAutoNewMusic(b.autoNewMusic);
+    if (typeof b.autoLaunch === 'boolean') launch.setEnabled(b.autoLaunch);
+    return { ...push.stats(), autoNewMusic: push.autoNewMusic(), autoLaunch: launch.enabled() };
   });
   app.post('/api/admin/push/test', admin(), async (req) => ({
     result: await push.notifyUser(req.user.id, { title: 'Prueba de aviso', body: 'Si ves esto, los avisos funcionan en tu celular.', url: '/', tag: 'test' }),

@@ -206,6 +206,7 @@ describe('lanzamiento programado: el álbum completo ya está en la carpeta pero
 
   test('el aviso de "música nueva" espera a que salga: se manda el día del lanzamiento, no antes', async () => {
     t.ctx.db.prepare('UPDATE tracks SET announced = 0').run();
+    t.ctx.db.prepare('UPDATE albums SET launched = 1').run(); // el aviso suelto solo cubre álbumes ya lanzados (los demás esperan su aviso de lanzamiento)
     t.ctx.push.setAutoNewMusic(true); // lo que ya suena queda como avisado; lo programado sigue pendiente
     assert.equal(t.ctx.db.prepare("SELECT COUNT(*) AS n FROM tracks WHERE announced = 0").get().n, 2, 'solo la 1 y la 2 (programadas)');
     assert.equal(await t.ctx.push.announceNewMusic(), null, 'antes de la fecha no hay nada que avisar');

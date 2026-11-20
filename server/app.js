@@ -18,6 +18,7 @@ import adminRoutes from './routes/admin.js';
 import onkyoRoutes from './routes/onkyo.js';
 import { createOnkyo } from './onkyo.js';
 import { createNews } from './news.js';
+import { createLaunch } from './launch.js';
 import { createPush } from './push.js';
 import pushRoutes from './routes/push.js';
 
@@ -57,6 +58,7 @@ export async function buildApp(config, { logger = true, pushSender } = {}) {
   const transcoder = createTranscoder({ db, config, log });
   const news = createNews({ db, lib });
   const push = createPush({ db, config, log, sender: pushSender });
+  const launch = createLaunch({ db, config, push, mailer, log });
   const onkyo = createOnkyo({ config, db, lib, log, transcoder });
   const covers = createCovers({ config });
   app.addHook('onClose', async () => onkyo.close());
@@ -73,7 +75,7 @@ export async function buildApp(config, { logger = true, pushSender } = {}) {
         try {
           lastScan = { at: Date.now(), ...(await scanLibrary({ db, config, log })) };
           transcoder.kick();
-          transcoder.whenIdle().then(() => push.announceNewMusic()).catch((e) => log.warn({ err: e.message }, 'no pude avisar de música nueva'));
+          transcoder.whenIdle().then(() => launch.check()).then(() => push.announceNewMusic()).catch((e) => log.warn({ err: e.message }, 'no pude avisar de música nueva'));
           transcoder.cleanup().catch(() => {});
         } catch (err) {
           lastScan = { at: Date.now(), error: err.message };
@@ -88,7 +90,7 @@ export async function buildApp(config, { logger = true, pushSender } = {}) {
   };
 
   app.decorate('db', db);
-  app.decorate('ctx', { config, db, auth, lib, library, transcoder, covers, mailer, onkyo, news, push });
+  app.decorate('ctx', { config, db, auth, lib, library, transcoder, covers, mailer, onkyo, news, push, launch });
 
   await app.register(cookie);
   await app.register(rateLimit, { global: true, max: 1200, timeWindow: '1 minute' });
@@ -127,7 +129,7 @@ export async function buildApp(config, { logger = true, pushSender } = {}) {
   await app.register(authRoutes, { auth, config });
   await app.register(apiRoutes, { auth, config, lib, db, covers, news });
   await app.register(adminRoutes, { auth, db, library, transcoder, config, news, push });
-  await app.register(pushRoutes, { auth, push });
+  await app.register(pushRoutes, { auth, push, launch });
   await app.register(onkyoRoutes, { auth, onkyo });
 
   // Archivos de la app (HTML, JS, CSS, fuentes e iconos): son públicos; la música no.

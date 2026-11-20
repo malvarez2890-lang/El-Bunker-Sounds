@@ -16,6 +16,7 @@ if (ctx.onkyo.enabled) app.log.info({ puerto: await ctx.onkyo.listen() }, 'Onkyo
 
 // Primer escaneo al arrancar y luego cada cierto tiempo (solo recorre archivos, es liviano).
 ctx.library.scan();
+setInterval(() => ctx.launch.check().catch(() => {}), 30 * 60 * 1000).unref(); // también revisa solo (p. ej. el día de un lanzamiento programado)
 if (config.scanIntervalMin > 0) setInterval(() => ctx.library.scan(), config.scanIntervalMin * 60 * 1000).unref();
 
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => app.close().then(() => process.exit(0)));

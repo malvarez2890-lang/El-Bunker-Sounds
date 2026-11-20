@@ -126,8 +126,11 @@ export async function admin(ctx) {
     const p = await get('/api/admin/push');
     const auto = h('input', { type: 'checkbox', checked: p.autoNewMusic });
     auto.addEventListener('change', async () => { try { await post('/api/admin/push/settings', { autoNewMusic: auto.checked }); toast(auto.checked ? 'Avisaré cuando llegue música nueva' : 'Sin avisos automáticos'); } catch (e) { toast(errorText(e)); auto.checked = !auto.checked; } });
+    const launch = h('input', { type: 'checkbox', checked: p.autoLaunch });
+    launch.addEventListener('change', async () => { try { await post('/api/admin/push/settings', { autoLaunch: launch.checked }); toast(launch.checked ? 'Avisaré de cada lanzamiento por correo y celular' : 'Sin avisos de lanzamiento'); } catch (e) { toast(errorText(e)); launch.checked = !launch.checked; } });
     fill(pushBox,
       h('div', { class: 'muted small' }, p.devices ? `${plural(p.devices, 'celular', 'celulares')} de ${plural(p.people, 'persona', 'personas')} reciben avisos.` : 'Nadie ha activado los avisos todavía. Cada persona lo hace desde su perfil (la letra de arriba a la derecha) o con el botón “Avísame”.'),
+      h('label', { class: 'check' }, launch, 'Avisar por correo y celular cuando salga un álbum completo'),
       h('label', { class: 'check' }, auto, 'Avisar solo cuando llegue música nueva'),
       h('button', { class: 'btn btn-secondary btn-sm', style: { 'margin-top': '10px' }, onclick: async () => {
         try { const { result } = await post('/api/admin/push/test'); toast(result.sent ? 'Aviso de prueba enviado a tu celular' : 'Tu celular no tiene los avisos activados (actívalos en tu perfil).'); } catch (e) { toast(errorText(e)); }

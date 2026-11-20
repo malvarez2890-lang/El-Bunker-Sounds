@@ -182,3 +182,61 @@ describe('aviso automático de música nueva', () => {
     assert.equal((await A('POST', '/api/admin/push/settings', { autoNewMusic: 'si' })).statusCode, 400);
   });
 });
+
+describe('lanzamientos: aviso automático por correo y celular cuando un álbum queda completo', () => {
+  let t, dir, album, calls;
+  const wav = (name, hz) => execFileSync('ffmpeg', ['-nostdin', '-y', '-v', 'error', '-f', 'lavfi', '-i', `sine=frequency=${hz}:duration=1`, path.join(album, name)]);
+  const correos = () => { const d = path.join(t.dataDir, 'outbox'); return fs.existsSync(d) ? fs.readdirSync(d).map((f) => JSON.parse(fs.readFileSync(path.join(d, f), 'utf8'))).filter((m) => /Ya salió/i.test(m.subject)) : []; };
+  before(async () => {
+    calls = [];
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ebs-lanz-'));
+    const viejo = path.join(dir, 'Artista', 'PIÙ VELOCE', 'Albums', '01. Viejo');
+    fs.mkdirSync(viejo, { recursive: true });
+    execFileSync('ffmpeg', ['-nostdin', '-y', '-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=300:duration=1', path.join(viejo, '01. Uno.wav')]);
+    album = path.join(dir, 'Artista', 'PIÙ VELOCE', 'Albums', '05. Nuevo Disco');
+    fs.mkdirSync(album, { recursive: true });
+    t = await makeApp({ MUSIC_DIR: dir, LAUNCH_HOURS: '0-24', LAUNCH_MAIL_PAUSE_MS: '0', pushSender: async (s, payload) => { calls.push(JSON.parse(payload)); } });
+  });
+  after(() => { delete process.env.EBS_FAKE_TODAY; return t.close(); });
+
+  test('lo que ya existía no se avisa; un álbum con fecha futura espera; el día de salida se avisa una sola vez, solo a los activos', async () => {
+    const A = t.api((await t.login('admin@test.cl')).cookie);
+    await A('POST', '/api/push/subscribe', sub(1));
+    const ts = Math.floor(Date.now() / 1000);
+    for (const [e, st] of [['ana@test.cl', 'active'], ['beto@test.cl', 'pending'], ['caro@test.cl', 'blocked']]) t.ctx.db.prepare('INSERT INTO users(email,name,status,created_at) VALUES(?,?,?,?)').run(e, e.split('@')[0], st, ts);
+    assert.deepEqual(await t.ctx.launch.check(), [], 'el álbum viejo ya estaba: no se avisa');
+
+    process.env.EBS_FAKE_TODAY = '2026-11-20';
+    fs.writeFileSync(path.join(album, 'TRACKLIST.txt'), 'Lanzamiento: 21 de noviembre de 2026\nDisponibles: 1\n01. Uno\n02. Dos\n03. Tres\n');
+    wav('01. Uno.wav', 400); wav('02. Dos.wav', 500); wav('03. Tres.wav', 600);
+    await t.ctx.library.scan(); await t.ctx.transcoder.whenIdle();
+    assert.deepEqual(await t.ctx.launch.check(), [], 'con canciones programadas todavía no es un lanzamiento');
+    assert.equal(correos().length, 0);
+
+    process.env.EBS_FAKE_TODAY = '2026-11-21';
+    assert.deepEqual(await t.ctx.launch.check(), ['Nuevo Disco']);
+    const mails = correos();
+    assert.deepEqual(mails.map((m) => m.to).sort(), ['admin@test.cl', 'ana@test.cl'], 'solo los activos, un correo cada uno');
+    assert.ok(calls.some((c) => /Ya salió Nuevo Disco/.test(c.title) && /3 canciones/.test(c.body) && /^\/#\/album\/\d+$/.test(c.url)), 'y también el aviso al celular');
+    assert.deepEqual(await t.ctx.launch.check(), [], 'no se repite');
+    await t.ctx.library.scan();
+    assert.deepEqual(await t.ctx.launch.check(), []);
+    assert.equal(correos().length, 2);
+  });
+
+  test('de madrugada espera, y se puede apagar desde Administración', async () => {
+    const A = t.api((await t.login('admin@test.cl')).cookie);
+    const horas = t.config.launch.hours;
+    t.config.launch.hours = [3, 3]; // fuera de horario (antes de escanear, para que nada se adelante)
+    const album2 = path.join(dir, 'Artista', 'PIÙ VELOCE', 'Albums', '06. Otro');
+    fs.mkdirSync(album2, { recursive: true });
+    execFileSync('ffmpeg', ['-nostdin', '-y', '-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=700:duration=1', path.join(album2, '01. Solo.wav')]);
+    await t.ctx.library.scan(); await t.ctx.transcoder.whenIdle();
+    assert.deepEqual(await t.ctx.launch.check(), [], 'de madrugada no se avisa');
+    assert.equal((await A('POST', '/api/admin/push/settings', { autoLaunch: false })).json().autoLaunch, false);
+    t.config.launch.hours = horas;
+    assert.deepEqual(await t.ctx.launch.check(), [], 'apagado');
+    assert.equal((await A('POST', '/api/admin/push/settings', { autoLaunch: true })).json().autoLaunch, true);
+    assert.deepEqual(await t.ctx.launch.check(), ['Otro'], 'en horario y encendido, sale lo que quedó pendiente');
+  });
+});

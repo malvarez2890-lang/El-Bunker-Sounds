@@ -76,7 +76,7 @@ export function createPush({ db, config, log, sender }) {
       try {
         const rows = db.prepare(`SELECT t.id, al.id AS albumId, al.title AS album, ar.name AS artist FROM tracks t
           JOIN albums al ON al.id = t.album_id JOIN artists ar ON ar.id = t.artist_id
-          WHERE t.announced = 0 AND t.audio_status = 'ok' AND t.missing = 0
+          WHERE t.announced = 0 AND t.audio_status = 'ok' AND t.missing = 0 AND al.launched = 1
           AND NOT (t.release_date IS NOT NULL AND t.release_date > ebs_today())`).all(); // lo programado se avisa el día que sale
         if (!rows.length) return null;
         db.prepare(`UPDATE tracks SET announced = 1 WHERE id IN (${rows.map(() => '?').join(',')})`).run(...rows.map((r) => r.id));

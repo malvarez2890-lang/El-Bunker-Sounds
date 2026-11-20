@@ -138,6 +138,10 @@ const MIGRATIONS = [
   `
   ALTER TABLE news ADD COLUMN soon INTEGER NOT NULL DEFAULT 0;
   `,
+  // 7: lanzamientos avisados (por correo y celular) una sola vez por álbum
+  `
+  ALTER TABLE albums ADD COLUMN launched INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 /** La fecha de hoy (YYYY-MM-DD) en la zona horaria de la app. Para pruebas se puede forzar con EBS_FAKE_TODAY. */
