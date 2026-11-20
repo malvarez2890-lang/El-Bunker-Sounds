@@ -58,3 +58,14 @@ export function accessRequestMail(user, baseUrl) {
       <a href="${esc(baseUrl)}/#/admin" style="display:inline-block;background:#FFCB24;color:#090A0C;text-decoration:none;font-weight:700;padding:12px 20px;border-radius:999px">Revisar solicitud</a>`),
   };
 }
+
+/** Aviso de que salió un álbum (lo manda el administrador desde la terminal del servidor). */
+export function albumReleasedMail({ name, albumTitle, artistName, text, baseUrl }) {
+  return {
+    subject: `¡Ya salió ${albumTitle}! · El Búnker Sound`,
+    text: `Hola ${name}:\n\n${text}\n\nEscúchalo en la app: ${baseUrl}\n\nEl Búnker Sound`,
+    html: shell(`¡Ya salió ${albumTitle}!`, `<p style="color:#A2A5AC;margin:0 0 6px">${esc(artistName)}</p>
+      <p style="margin:0 0 18px;line-height:1.5">Hola ${esc(name)}: ${esc(text)}</p>
+      <a href="${esc(baseUrl)}" style="display:inline-block;background:#FFCB24;color:#090A0C;text-decoration:none;font-weight:700;padding:12px 20px;border-radius:999px">Abrir El Búnker Sound</a>`),
+  };
+}

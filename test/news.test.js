@@ -1,5 +1,7 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { makeApp } from './helpers.js';
 import { crearNovedad, PRESETS } from '../server/cli/crear-novedad.js';
 
@@ -98,5 +100,34 @@ describe('crear una novedad desde la terminal del servidor', () => {
   });
   test('sin título ni plantilla, explica qué falta', () => {
     assert.equal(crearNovedad({ db: t.ctx.db, argv: [] }).ok, false);
+  });
+});
+
+describe('aviso por correo de que salió un álbum', () => {
+  test('sin --enviar no manda nada; con --enviar, solo a los activos', async () => {
+    const { avisarPorCorreo, AVISOS } = await import('../server/cli/avisar-por-correo.js');
+    const t = await makeApp();
+    try {
+      const db = t.ctx.db;
+      const ts = Math.floor(Date.now() / 1000);
+      for (const [email, name, status] of [['ana@test.cl', 'Ana Pérez', 'active'], ['beto@test.cl', 'Beto', 'pending'], ['caro@test.cl', 'Caro', 'blocked'], ['dani@test.cl', 'Dani <b>', 'active']]) {
+        db.prepare('INSERT INTO users(email,name,status,created_at) VALUES(?,?,?,?)').run(email, name, status, ts);
+      }
+      AVISOS.__prueba = { album: 'musica per te', texto: 'ya salió el álbum.' };
+      const outbox = () => (fs.existsSync(path.join(t.dataDir, 'outbox')) ? fs.readdirSync(path.join(t.dataDir, 'outbox')).map((f) => JSON.parse(fs.readFileSync(path.join(t.dataDir, 'outbox', f), 'utf8'))) : []);
+      const antes = outbox().length;
+      const seco = await avisarPorCorreo({ db, config: t.config, mailer: t.ctx.mailer, aviso: '__prueba', enviar: false });
+      assert.equal(seco.ok, true); assert.equal(seco.enviado, false);
+      assert.deepEqual(seco.to.filter((e) => e.endsWith('@test.cl')).sort(), ['ana@test.cl', 'dani@test.cl']);
+      assert.equal(outbox().length, antes, 'no se envió nada');
+      const real = await avisarPorCorreo({ db, config: t.config, mailer: t.ctx.mailer, aviso: '__prueba', enviar: true, pausaMs: 0 });
+      assert.equal(real.enviado, true);
+      const nuevos = outbox().slice(antes);
+      assert.ok(nuevos.every((m) => !m.to.includes(',')), 'un correo por persona (nadie ve a los demás)');
+      assert.ok(nuevos.some((m) => m.to === 'ana@test.cl' && /Hola Ana:/.test(m.text) && /Ya salió/.test(m.subject)));
+      assert.ok(!nuevos.some((m) => ['beto@test.cl', 'caro@test.cl'].includes(m.to)), 'pendientes y bloqueados no reciben');
+      delete AVISOS.__prueba;
+      assert.equal((await avisarPorCorreo({ db, config: t.config, mailer: t.ctx.mailer, aviso: 'no-existe' })).ok, false);
+    } finally { await t.close(); }
   });
 });
