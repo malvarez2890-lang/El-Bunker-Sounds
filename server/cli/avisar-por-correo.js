@@ -6,6 +6,7 @@ import { loadConfig } from '../config.js';
 import { openDb } from '../db.js';
 import { createLibraryQueries } from '../library.js';
 import { createMailer, albumReleasedMail } from '../mail.js';
+import { createCovers } from '../media.js';
 import { norm } from '../util.js';
 
 export const AVISOS = {
@@ -24,13 +25,15 @@ export async function avisarPorCorreo({ db, config, mailer, aviso, enviar = fals
   const lib = createLibraryQueries(db);
   const album = lib.albums('AND al.search LIKE ?', [`%${norm(preset.album)}%`])[0];
   if (!album) return { ok: false, msg: 'No encuentro ese álbum con canciones disponibles. Primero sincroniza la música y toca “Buscar música nueva”.', to: [] };
+  let coverPath = null;
+  try { const row = lib.albumForCover(album.id); coverPath = row ? await createCovers({ config }).get(row, 'm') : null; } catch { /* sin portada */ }
   const users = db.prepare("SELECT name, email FROM users WHERE status = 'active' ORDER BY id").all();
   if (!users.length) return { ok: false, msg: 'No hay usuarios con acceso.', to: [] };
   if (!enviar) return { ok: true, enviado: false, msg: `Se enviaría a ${users.length} persona(s). NO se envió nada. Para enviar, agrega --enviar.`, to: users.map((u) => u.email) };
   const to = []; const fallos = [];
   for (const u of users) {
     try {
-      await mailer.send({ to: u.email, ...albumReleasedMail({ name: String(u.name || '').split(' ')[0] || 'amigo', albumTitle: album.title, artistName: album.artistName, text: preset.texto, baseUrl: config.baseUrl }) });
+      await mailer.send({ to: u.email, ...albumReleasedMail({ name: String(u.name || '').split(' ')[0] || 'amigo', albumTitle: album.title, artistName: album.artistName, text: preset.texto, baseUrl: config.baseUrl, coverPath }) });
       to.push(u.email); log(`✓ ${u.email}`);
     } catch (err) { fallos.push(u.email); log(`✗ ${u.email}: ${err.message}`); }
     await sleep(pausaMs); // sin apuro, para que Gmail no lo tome como spam

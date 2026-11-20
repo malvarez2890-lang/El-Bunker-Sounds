@@ -58,9 +58,9 @@ export async function buildApp(config, { logger = true, pushSender } = {}) {
   const transcoder = createTranscoder({ db, config, log });
   const news = createNews({ db, lib });
   const push = createPush({ db, config, log, sender: pushSender });
-  const launch = createLaunch({ db, config, push, mailer, log });
-  const onkyo = createOnkyo({ config, db, lib, log, transcoder });
   const covers = createCovers({ config });
+  const launch = createLaunch({ db, config, push, mailer, log, covers, lib });
+  const onkyo = createOnkyo({ config, db, lib, log, transcoder });
   app.addHook('onClose', async () => onkyo.close());
 
   // Escaneo de la biblioteca (uno a la vez), luego convierte lo nuevo.

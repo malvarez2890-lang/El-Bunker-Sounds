@@ -8,7 +8,7 @@ const READY = "t.audio_status = 'ok' AND NOT (t.release_date IS NOT NULL AND t.r
 const COMPLETE = `EXISTS(SELECT 1 FROM tracks t WHERE t.album_id = al.id AND t.missing = 0 AND ${READY})
   AND NOT EXISTS(SELECT 1 FROM tracks t WHERE t.album_id = al.id AND t.missing = 0 AND NOT (${READY}))`;
 
-export function createLaunch({ db, config, push, mailer, log }) {
+export function createLaunch({ db, config, push, mailer, log, covers, lib }) {
   const getSetting = (k) => db.prepare('SELECT value FROM settings WHERE key = ?').get(k)?.value;
   const setSetting = (k, v) => db.prepare('INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, String(v));
   const hourNow = () => Number(new Intl.DateTimeFormat('en-GB', { timeZone: config.tz, hour: '2-digit', hour12: false }).format(new Date())) % 24;
@@ -44,11 +44,13 @@ export function createLaunch({ db, config, push, mailer, log }) {
           const cuantas = a.n === 1 ? '1 canción' : `${a.n} canciones`;
           try { await push.notifyAll({ title: `¡Ya salió ${a.title}!`, body: `${a.artist} · ${cuantas}`, url: `/#/album/${a.id}`, tag: `launch-${a.id}` }); }
           catch (err) { log?.warn?.({ err: err.message, album: a.id }, 'lanzamiento: falló el aviso al celular'); }
+          let coverPath = null;
+          try { const row = lib?.albumForCover(a.id); coverPath = row && covers ? await covers.get(row, 'm') : null; } catch { /* sin portada */ }
           const users = db.prepare("SELECT name, email FROM users WHERE status = 'active' ORDER BY id").all();
           let ok = 0;
           for (const u of users) {
             try {
-              await mailer.send({ to: u.email, ...albumReleasedMail({ name: String(u.name || '').split(' ')[0] || 'amigo', albumTitle: a.title, artistName: a.artist, text: `ya salió "${a.title}": ${cuantas} para escuchar.`, baseUrl: config.baseUrl }) });
+              await mailer.send({ to: u.email, ...albumReleasedMail({ name: String(u.name || '').split(' ')[0] || 'amigo', albumTitle: a.title, artistName: a.artist, text: `ya salió "${a.title}": ${cuantas} para escuchar.`, baseUrl: config.baseUrl, coverPath }) });
               ok++;
             } catch (err) { log?.warn?.({ err: err.message, to: u.email }, 'lanzamiento: falló un correo'); }
             if (config.launch.pauseMs) await sleep(config.launch.pauseMs);
