@@ -82,6 +82,20 @@ describe('crear una novedad desde la terminal del servidor', () => {
     assert.match(crearNovedad({ db: t.ctx.db, argv }).msg, /Ya existía/);
     assert.equal(t.ctx.news.list({ all: true }).length, 1);
   });
+  test('la plantilla "ya salió" esconde la noticia anterior de los singles', () => {
+    assert.ok(PRESETS['la-vita-lanzado'].titulo.length <= 80 && PRESETS['la-vita-lanzado'].texto.length <= 500);
+    const old = t.ctx.news.create({ title: PRESETS['la-vita-lanzado'].reemplaza[0], body: 'x' });
+    // (la biblioteca de prueba no tiene La Vita: se usa otro álbum para comprobar el reemplazo)
+    const r = crearNovedad({ db: t.ctx.db, argv: ['--titulo', '¡Ya salió!', '--album', 'musica per te'] });
+    assert.equal(r.ok, true, r.msg);
+    assert.equal(t.ctx.news.get(old.id).active, true, 'sin plantilla no se esconde nada');
+    const p = PRESETS['la-vita-lanzado'];
+    PRESETS.__prueba = { ...p, album: 'musica per te', titulo: 'Ya salió (prueba)' };
+    const r2 = crearNovedad({ db: t.ctx.db, argv: ['__prueba'] });
+    delete PRESETS.__prueba;
+    assert.equal(r2.ok, true, r2.msg);
+    assert.equal(t.ctx.news.get(old.id).active, false, 'la anterior queda escondida');
+  });
   test('sin título ni plantilla, explica qué falta', () => {
     assert.equal(crearNovedad({ db: t.ctx.db, argv: [] }).ok, false);
   });

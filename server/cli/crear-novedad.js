@@ -13,6 +13,12 @@ export const PRESETS = {
     texto: 'PIÙ VELOCE adelanta 4 canciones de su nuevo álbum: Tutto Sotto Controllo, Telefono Occupato, Noi Siamo y Birra Elegante. Italo disco para encender la noche. El álbum completo llega el 21 de noviembre.',
     album: 'la vita e un gioco',
   },
+  'la-vita-lanzado': {
+    titulo: '¡Ya salió La Vita È Un Gioco!',
+    texto: 'El álbum completo de PIÙ VELOCE ya está disponible: las 13 canciones, para escuchar de principio a fin.',
+    album: 'la vita e un gioco',
+    reemplaza: ['Primeros 4 singles de La Vita È Un Gioco'], // esconde la noticia anterior
+  },
   'fran-proximamente': {
     titulo: 'FRAN, el nuevo álbum de Francesca Luce',
     texto: 'Francesca Luce (PIÙ VELOCE) prepara su nuevo álbum: 15 canciones para viajar de noche por la costa. Muy pronto.',
@@ -39,6 +45,7 @@ export function crearNovedad({ db, argv }) {
   }
   const dup = news.list({ all: true }).find((n) => n.title === titulo);
   if (dup) return { ok: true, msg: `Ya existía la novedad “${titulo}”. No hice nada.`, item: dup };
+  for (const t of preset.reemplaza || []) { const old = news.list({ all: true }).find((n) => n.title === t && n.active); if (old) news.update(old.id, { active: false }); }
   const item = news.create({ title: titulo, body: texto, albumId, active: true, soon: argv.includes('--proximamente') || !!preset.proximamente });
   return { ok: true, msg: `Listo: novedad “${item.title}” creada${item.album ? ` (${item.album.hidden ? 'solo se ve la portada' : `abre el álbum “${item.album.title}”`})` : ''}. Ya se ve arriba en Inicio.`, item };
 }
