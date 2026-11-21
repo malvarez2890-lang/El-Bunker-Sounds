@@ -4,6 +4,35 @@ import * as player from './player.js';
 import { cover, toggleFav, go, openSheet, toast, overlayRoot } from './ui.js';
 import { pointerGesture, glide } from './gestures.js';
 import { onkyoAvailable, openOnkyo } from './onkyoui.js';
+import { coverUrl } from './api.js';
+
+// El resplandor del reproductor toma el color de la carátula (promedio de los colores más vivos). Sin carátula, dorado.
+const glowCache = new Map();
+function coverGlow(t) {
+  if (!t?.hasCover) return Promise.resolve(null);
+  const url = coverUrl(t.albumId, 's', t.coverV);
+  if (glowCache.has(url)) return Promise.resolve(glowCache.get(url));
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const c = document.createElement('canvas'); c.width = c.height = 24;
+        const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0, 24, 24);
+        const d = g.getImageData(0, 0, 24, 24).data;
+        let r = 0, gr = 0, b = 0, w = 0;
+        for (let i = 0; i < d.length; i += 4) {
+          const mx = Math.max(d[i], d[i + 1], d[i + 2]), mn = Math.min(d[i], d[i + 1], d[i + 2]);
+          const wt = (mx - mn) / 255 * (mx / 255) + 0.02; // más peso a lo vivo y claro
+          r += d[i] * wt; gr += d[i + 1] * wt; b += d[i + 2] * wt; w += wt;
+        }
+        const col = `rgba(${Math.round(r / w)}, ${Math.round(gr / w)}, ${Math.round(b / w)}, .42)`;
+        glowCache.set(url, col); resolve(col);
+      } catch { resolve(null); }
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
 
 let miniEl = null;
 
@@ -132,7 +161,7 @@ export function openPlayer() {
     const s = player.state();
     const t = player.current();
     if (!t) { close(); return; }
-    if (shownId !== t.id) { shownId = t.id; build(t); }
+    if (shownId !== t.id) { shownId = t.id; build(t); const id = t.id; coverGlow(t).then((col) => { if (shownId === id) { if (col) root.style.setProperty('--glow', col); else root.style.removeProperty('--glow'); } }); }
     const pl = player.isPlayingUI(s);
     els.eyebrow.textContent = player.isRemote() ? 'Sonando en el Onkyo' : 'Reproduciendo';
     clear(els.play).append(icon(pl ? 'pause' : 'play'));
