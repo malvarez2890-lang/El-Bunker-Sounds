@@ -911,6 +911,30 @@ test('perfil: opción para activar los avisos de novedades', { skip: !pw }, asyn
   await page.keyboard.press('Escape');
 });
 
+test('entrar desde la PC con la cuenta del celular: código «Conectar otro dispositivo» → «Ya tengo cuenta»', { skip: !pw }, async () => {
+  const { page } = admin;
+  await page.goto(base); await settled(page);
+  await page.getByRole('button', { name: 'Tu perfil' }).click();
+  await page.getByRole('button', { name: /Conectar otro dispositivo/ }).click();
+  await page.locator('.sheet h3', { hasText: 'Conectar otro dispositivo' }).waitFor();
+  const code = (await page.locator('.sheet div', { hasText: /^[A-Z2-9]{4}-[A-Z2-9]{4}$/ }).first().innerText()).trim();
+  assert.match(code, /^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
+  await shot(page, '73-conectar-dispositivo');
+  await page.keyboard.press('Escape');
+
+  const pc = await newPage('pc');
+  await pc.page.goto(base);
+  await pc.page.getByRole('button', { name: 'Entrar', exact: true }).click();
+  await pc.page.getByRole('button', { name: /Ya tengo cuenta/ }).click();
+  await shot(pc.page, '74-entrar-con-codigo');
+  await pc.page.getByLabel('Código del celular').fill('ZZZZ-ZZZZ');
+  await pc.page.getByText('no sirve o ya venció').waitFor(); // un código falso no entra
+  await pc.page.getByLabel('Código del celular').fill(code);
+  await pc.page.getByRole('heading', { name: 'Tu música. Tu refugio.' }).waitFor(); // entró, con la misma cuenta
+  assert.equal((await pc.page.evaluate(() => fetch('/api/me').then((r) => r.json()))).user.email, 'admin@test.cl');
+  await pc.page.context().close();
+});
+
 test('perfil y cierre de sesión', { skip: !pw }, async () => {
   const { page } = admin;
   await page.goto(base);

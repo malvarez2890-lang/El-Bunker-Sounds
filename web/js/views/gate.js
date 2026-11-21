@@ -39,8 +39,28 @@ export async function renderGate(app, { onDone }) {
           h('div', { class: 'muted', style: { 'margin-bottom': '6px' } }, 'Escribe el mismo correo con el que ya entras en tu celular y te enviamos un código. Si ya tienes cuenta, no se crea otra. Solo si es tu primera vez, el administrador tiene que aprobar tu acceso.'),
           cfg.google ? h('a', { class: 'btn google-btn btn-block', href: '/api/auth/google/start' }, 'Entrar con Google') : null,
           cfg.google ? h('div', { class: 'divider' }, 'o con tu correo') : null,
-          form));
+          form,
+          h('div', { class: 'divider' }, 'o'),
+          h('button', { class: 'btn btn-secondary btn-block', onclick: () => { step = 'link'; draw(); } }, icon('user'), 'Ya tengo cuenta: entrar con un código del celular')));
       message = '';
+    } else if (step === 'link') {
+      const err = h('div', { class: 'err', role: 'alert' });
+      const input = h('input', { class: 'field code-input', autocomplete: 'off', autocapitalize: 'characters', spellcheck: false, maxLength: 9, placeholder: 'XXXX-XXXX', 'aria-label': 'Código del celular', style: { 'letter-spacing': '.2em', 'text-transform': 'uppercase' } });
+      const go = async () => {
+        const code = input.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        if (code.length !== 8) return;
+        input.disabled = true; err.textContent = '';
+        try { await post('/api/auth/link/redeem', { code }); onDone(); }
+        catch (ex) { input.disabled = false; input.focus(); err.textContent = ex.status === 429 ? 'Demasiados intentos. Espera unos minutos.' : 'Ese código no sirve o ya venció. Pide uno nuevo en tu celular.'; }
+      };
+      input.addEventListener('input', () => { const c = input.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 8); input.value = c.length > 4 ? `${c.slice(0, 4)}-${c.slice(4)}` : c; if (c.length === 8) go(); });
+      wrap.append(h('div', { class: 'stack' },
+        h('div', { class: 'pending-ico' }, icon('user')),
+        h('h1', { style: { 'text-align': 'center' } }, 'Entrar con tu cuenta'),
+        h('div', { class: 'muted', style: { 'text-align': 'center' } }, 'En tu celular abre El Búnker Sound, toca tu letra (arriba a la derecha) y elige «Conectar otro dispositivo». Escribe aquí el código que aparece.'),
+        input, err,
+        h('button', { class: 'btn btn-ghost btn-block', onclick: () => { step = 'login'; draw(); } }, 'Volver')));
+      setTimeout(() => input.focus(), 80);
     } else {
       const err = h('div', { class: 'err', role: 'alert' });
       const input = h('input', { class: 'field code-input', inputMode: 'numeric', autocomplete: 'one-time-code', maxLength: 6, placeholder: '······', 'aria-label': 'Código de 6 dígitos' });

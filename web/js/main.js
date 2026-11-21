@@ -116,6 +116,21 @@ async function openProfile(me, avatar) {
           if (PUSH_HELP[ps]) { toast(PUSH_HELP[ps]); return; }
           try { toast((await enablePush()) === 'on' ? 'Avisos activados' : PUSH_HELP.denied); } catch (e) { toast(errorText(e)); }
         }),
+        item('user', 'Conectar otro dispositivo (PC)', async () => {
+          try {
+            const { code, expiresIn } = await post('/api/auth/link/create');
+            openSheet((b2, o2) => {
+              const left = h('div', { class: 'muted small', style: { 'text-align': 'center' } });
+              let sec = expiresIn;
+              const t = setInterval(() => { sec--; if (!left.isConnected || sec <= 0) { clearInterval(t); if (sec <= 0) left.textContent = 'El código venció. Pide uno nuevo.'; return; } left.textContent = `Vence en ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}. Sirve una sola vez.`; }, 1000);
+              left.textContent = 'Vence en 5:00. Sirve una sola vez.';
+              b2.append(h('h3', null, 'Conectar otro dispositivo'),
+                h('div', { class: 'muted', style: { 'text-align': 'center', margin: '0 0 12px' } }, 'En el otro aparato (tu PC), abre la app, toca «Entrar», luego «Ya tengo cuenta» y escribe este código:'),
+                h('div', { style: { 'font-size': '34px', 'letter-spacing': '.12em', 'font-weight': '700', color: 'var(--gold)', 'text-align': 'center', padding: '14px 0' } }, code), left,
+                h('div', { class: 'btns', style: { 'margin-top': '14px' } }, h('button', { class: 'btn btn-primary', onclick: () => o2.close() }, 'Listo')));
+            });
+          } catch (e) { toast(errorText(e)); }
+        }),
         me.isAdmin ? item('shield', pending ? `Administración (${pending} pendiente${pending === 1 ? '' : 's'})` : 'Administración', () => go('#/admin')) : null,
         item('logout', 'Cerrar sesión', logout, 'danger'),
         appVersion() ? h('div', { class: 'muted small', style: { 'text-align': 'center', padding: '10px 0 2px' } }, `Versión ${appVersion()}`) : null));

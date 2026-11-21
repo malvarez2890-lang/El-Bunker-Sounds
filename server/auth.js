@@ -107,6 +107,30 @@ export function createAuth({ db, config, mailer, log }) {
     return findOrCreateUser({ email });
   }
 
+  // ---- entrar en otro aparato con un código que se crea desde un celular que ya está dentro ----
+  const LINK_TTL = 300;
+  const LINK_ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sin letras que se confunden (O/0, I/1)
+  const normLink = (c) => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  function createLinkCode(userId) {
+    const bytes = crypto.randomBytes(8);
+    const raw = [...bytes].map((b) => LINK_ABC[b % LINK_ABC.length]).join('');
+    db.prepare('DELETE FROM link_codes WHERE user_id = ? OR expires_at <= ?').run(userId, now());
+    db.prepare('INSERT INTO link_codes(code_hash, user_id, expires_at) VALUES(?,?,?)').run(sha256(raw), userId, now() + LINK_TTL);
+    return { code: `${raw.slice(0, 4)}-${raw.slice(4)}`, expiresIn: LINK_TTL };
+  }
+  /** Devuelve el usuario dueño del código (y lo gasta), o null si no existe, venció o ya se usó. */
+  function redeemLinkCode(code) {
+    const raw = normLink(code);
+    if (raw.length !== 8) return null;
+    const h = sha256(raw);
+    const row = db.prepare('SELECT * FROM link_codes WHERE code_hash = ?').get(h);
+    if (!row) return null;
+    db.prepare('DELETE FROM link_codes WHERE code_hash = ?').run(h); // un solo uso
+    if (row.expires_at <= now()) return null;
+    const user = db.prepare("SELECT * FROM users WHERE id = ? AND status = 'active'").get(row.user_id);
+    return user || null;
+  }
+
   // ---- Google (OpenID Connect con PKCE) ----
   const googleEnabled = () => !!(config.google.clientId && config.google.clientSecret);
   const redirectUri = () => `${config.baseUrl}/api/auth/google/callback`;
@@ -166,7 +190,7 @@ export function createAuth({ db, config, mailer, log }) {
   };
 
   return {
-    COOKIE, issueSession, userFromRequest, destroySession, publicUser, findOrCreateUser,
+    COOKIE, createLinkCode, redeemLinkCode, issueSession, userFromRequest, destroySession, publicUser, findOrCreateUser,
     startEmailLogin, verifyEmailLogin, googleEnabled, googleStart, googleCallback, needUser, needActive, needAdmin,
   };
 }

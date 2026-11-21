@@ -142,6 +142,14 @@ const MIGRATIONS = [
   `
   ALTER TABLE albums ADD COLUMN launched INTEGER NOT NULL DEFAULT 0;
   `,
+  // 8: código para entrar en otro aparato con la cuenta de un celular que ya está dentro (un solo uso, vence en 5 minutos)
+  `
+  CREATE TABLE link_codes (
+    code_hash TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at INTEGER NOT NULL
+  );
+  `,
 ];
 
 /** La fecha de hoy (YYYY-MM-DD) en la zona horaria de la app. Para pruebas se puede forzar con EBS_FAKE_TODAY. */

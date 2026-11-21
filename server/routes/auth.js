@@ -27,6 +27,18 @@ export default async function authRoutes(app, { auth, config }) {
     return { user: auth.publicUser(user) };
   });
 
+  // Desde un celular que ya está dentro: crea un código para entrar en otro aparato (PC) con la misma cuenta.
+  app.post('/api/auth/link/create', strict(10), async (req, reply) => {
+    if (!auth.needActive(req, reply)) return;
+    return auth.createLinkCode(req.user.id);
+  });
+  app.post('/api/auth/link/redeem', strict(10), async (req, reply) => {
+    const user = auth.redeemLinkCode(req.body?.code);
+    if (!user) return reply.code(401).send({ error: 'codigo_incorrecto' });
+    auth.issueSession(reply, user.id);
+    return { user: auth.publicUser(user) };
+  });
+
   app.get('/api/auth/google/start', strict(20), async (req, reply) => {
     if (!auth.googleEnabled()) return reply.code(404).send({ error: 'google_no_configurado' });
     return reply.redirect(auth.googleStart(reply));
