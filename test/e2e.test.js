@@ -93,7 +93,7 @@ const shot = async (page, name) => {
 
 async function login(page, email) {
   await page.goto(base);
-  await page.getByRole('button', { name: 'Comenzar' }).click();
+  await page.getByRole('button', { name: 'Entrar', exact: true }).click();
   await page.getByLabel('Tu correo').fill(email);
   await page.getByRole('button', { name: 'Enviarme un código' }).click();
   await page.getByLabel('Código de 6 dígitos').waitFor();
@@ -109,7 +109,7 @@ test('pantalla de bienvenida y acceso', { skip: !pw }, async () => {
   await page.goto(base);
   await page.getByRole('img', { name: 'El Búnker Sound' }).waitFor();
   await shot(page, '01-bienvenida');
-  await page.getByRole('button', { name: 'Comenzar' }).click();
+  await page.getByRole('button', { name: 'Entrar', exact: true }).click();
   await page.waitForTimeout(250);
   await shot(page, '02-entrar');
   await page.getByLabel('Tu correo').fill('mal');
@@ -299,7 +299,7 @@ test('pantalla de carga: aparece al instante con el logo y luego se va', { skip:
   await f.page.waitForTimeout(700);
   await f.page.screenshot({ path: path.join(SHOTS, '00-pantalla-de-carga.png') });
   await f.page.locator('#splash').waitFor({ state: 'detached', timeout: 6000 });
-  await f.page.getByRole('button', { name: 'Comenzar' }).waitFor();
+  await f.page.getByRole('button', { name: 'Entrar', exact: true }).waitFor();
   await f.ctx.close();
 });
 
@@ -562,7 +562,7 @@ test('teléfono de lado (horizontal): la app se reordena (columna de navegación
   // entrada
   await page.goto(base);
   await page.locator('#splash').waitFor({ state: 'detached', timeout: 8000 });
-  await fits(page.getByRole('button', { name: 'Comenzar' }), 'botón Comenzar');
+  await fits(page.getByRole('button', { name: 'Entrar', exact: true }), 'botón Entrar');
   await page.screenshot({ path: path.join(SHOTS, '21-horizontal-entrada.png') });
   await login(page, 'admin@test.cl');
   await P(page).getByRole('heading', { name: 'Tu música. Tu refugio.' }).waitFor();
@@ -711,7 +711,7 @@ test('amigo nuevo: queda pendiente y el admin lo aprueba desde la app', { skip: 
   await page.getByRole('button', { name: 'Bloquear', exact: true }).last().click();
   await page.getByText('fue bloqueado').waitFor();
   await friend.page.goto(base);
-  await friend.page.getByRole('heading', { name: 'Entrar' }).or(friend.page.getByRole('button', { name: 'Comenzar' })).waitFor();
+  await friend.page.getByRole('heading', { name: 'Entrar' }).or(friend.page.getByRole('button', { name: 'Entrar', exact: true })).waitFor();
 });
 
 test('apenas tocas una canción suena (por streaming) mientras baja la copia; luego cambia a la copia sin cortarse', { skip: !pw }, async () => {
@@ -919,7 +919,7 @@ test('perfil y cierre de sesión', { skip: !pw }, async () => {
   await page.waitForTimeout(450);
   await shot(page, '18-perfil');
   await page.getByRole('button', { name: 'Cerrar sesión' }).click();
-  await page.getByRole('button', { name: 'Comenzar' }).waitFor();
+  await page.getByRole('button', { name: 'Entrar', exact: true }).waitFor();
 });
 
 test('sin errores en la consola ni respuestas fallidas inesperadas', { skip: !pw }, () => {

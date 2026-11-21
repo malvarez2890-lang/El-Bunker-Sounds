@@ -18,8 +18,8 @@ export async function renderGate(app, { onDone }) {
     app.append(wrap);
     if (step === 'welcome') {
       wrap.append(logo(), h('div', { class: 'tagline' }, 'Tu refugio musical.'),
-        h('div', { class: 'stack' }, h('button', { class: 'btn btn-primary btn-block', onclick: () => { step = 'login'; draw(); } }, 'Comenzar'),
-          h('div', { class: 'hint' }, 'Música de casa, solo para amigos invitados.')));
+        h('div', { class: 'stack' }, h('button', { class: 'btn btn-primary btn-block', onclick: () => { step = 'login'; draw(); } }, 'Entrar'),
+          h('div', { class: 'hint' }, 'Si ya tienes cuenta, entra con el mismo correo de siempre: no se crea otra. Música de casa, solo para amigos invitados.')));
     } else if (step === 'login') {
       const err = h('div', { class: 'err', role: 'alert' }, message);
       const input = h('input', { class: 'field', type: 'email', placeholder: 'tu@correo.com', autocomplete: 'email', inputMode: 'email', autocapitalize: 'off', 'aria-label': 'Tu correo', value: email });
@@ -36,7 +36,7 @@ export async function renderGate(app, { onDone }) {
       wrap.append(h('img', { class: 'logo', src: '/img/logo.webp', alt: '', style: { width: '52%', 'margin-bottom': '14px' } }),
         h('div', { class: 'stack' },
           h('h1', null, 'Entrar'),
-          h('div', { class: 'muted', style: { 'margin-bottom': '6px' } }, 'La primera vez, el administrador tiene que aprobar tu acceso.'),
+          h('div', { class: 'muted', style: { 'margin-bottom': '6px' } }, 'Escribe el mismo correo con el que ya entras en tu celular y te enviamos un código. Si ya tienes cuenta, no se crea otra. Solo si es tu primera vez, el administrador tiene que aprobar tu acceso.'),
           cfg.google ? h('a', { class: 'btn google-btn btn-block', href: '/api/auth/google/start' }, 'Entrar con Google') : null,
           cfg.google ? h('div', { class: 'divider' }, 'o con tu correo') : null,
           form));
@@ -83,8 +83,9 @@ export function renderPending(app, me, { onRefresh, onLogout }) {
     h('div', { class: 'pending-ico' }, icon('clock')),
     h('h1', { style: { 'text-align': 'center' } }, 'Tu acceso está pendiente'),
     h('div', { class: 'muted', style: { 'text-align': 'center' } }, `Hola, ${me.name}. Ya avisamos al administrador. Cuando apruebe tu acceso podrás escuchar la música.`),
+    h('div', { class: 'muted small', style: { 'text-align': 'center' } }, `¿Ya tenías cuenta? Entraste con ${me.email || 'otro correo'}, que no es el de siempre. Cierra sesión y entra con el correo con el que ya usas la app.`),
     h('button', { class: 'btn btn-primary btn-block', onclick: onRefresh }, icon('refresh'), 'Revisar de nuevo'),
-    h('button', { class: 'btn btn-ghost btn-block', onclick: onLogout }, 'Cerrar sesión'))));
+    h('button', { class: 'btn btn-ghost btn-block', onclick: onLogout }, 'Entrar con otro correo'))));
 }
 
 export function renderBlocked(app, { onLogout }) {
