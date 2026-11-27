@@ -55,7 +55,7 @@ const codeFor = (email) => {
 async function newPage(name, opts = {}) {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'es-CL', serviceWorkers: 'block', ...opts });
   const page = await ctx.newPage();
-  page.on('console', (m) => { if (m.type() === 'error' && !/status of (401|403)/.test(m.text())) errors.push(`[${name}] ${m.text()}`); });
+  page.on('console', (m) => { if (m.type() === 'error' && !/status of (401|403)|net::ERR_(FAILED|INTERNET_DISCONNECTED)/.test(m.text())) errors.push(`[${name}] ${m.text()}`); });
   page.on('pageerror', (e) => errors.push(`[${name}] ${e.message}`));
   page.on('response', (r) => { if (r.status() >= 400 && !r.url().includes('/api/')) errors.push(`[${name}] ${r.status()} ${r.url()}`); });
   await page.addInitScript(() => {
@@ -933,6 +933,46 @@ test('entrar desde la PC con la cuenta del celular: código «Conectar otro disp
   await pc.page.getByRole('heading', { name: 'Tu música. Tu refugio.' }).waitFor(); // entró, con la misma cuenta
   assert.equal((await pc.page.evaluate(() => fetch('/api/me').then((r) => r.json()))).user.email, 'admin@test.cl');
   await pc.page.context().close();
+});
+
+test('servidor caído: la app abre igual, lo explica, reintenta sola y avisa arriba mientras la usas', { skip: !pw }, async () => {
+  // 1) al abrir: el servidor no contesta → pantalla clara (no una página en blanco) y se recupera sola
+  const pc = await newPage('sin-servidor');
+  await pc.page.route('**/api/**', (r) => r.abort());
+  await pc.page.goto(base);
+  await pc.page.getByRole('heading', { name: 'Sin conexión con el servidor' }).waitFor();
+  await pc.page.locator('.gate').getByText('Puede estar apagado o reiniciándose').waitFor();
+  await noSplash(pc.page);
+  await shot(pc.page, '75-servidor-caido');
+  await pc.page.unroute('**/api/**');
+  await pc.page.getByRole('button', { name: 'Entrar', exact: true }).waitFor({ timeout: 15000 }); // volvió: sigue el flujo normal sin tocar nada
+  await pc.page.context().close();
+
+  // 2) usando la app: si se cae, aparece el aviso arriba, y se quita solo al volver
+  const { page } = admin;
+  await page.goto(base); await settled(page);
+  await page.route('**/api/version*', (r) => r.abort());
+  await page.evaluate(() => import('/js/api.js').then((m) => m.get('/api/version').catch(() => {})));
+  await page.locator('.net-banner').waitFor({ state: 'visible' });
+  await noSplash(page);
+  await shot(page, '76-aviso-sin-servidor');
+  await page.unroute('**/api/version*');
+  await page.locator('.net-banner').waitFor({ state: 'hidden', timeout: 15000 });
+});
+
+test('sin servidor ni internet, la app instalada igual abre (copia guardada) y avisa', { skip: !pw }, async () => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'es-CL', serviceWorkers: 'allow' });
+  const page = await ctx.newPage();
+  await page.goto(base);
+  await page.getByRole('button', { name: 'Entrar', exact: true }).waitFor();
+  await page.evaluate(() => navigator.serviceWorker.ready.then(() => new Promise((r) => (navigator.serviceWorker.controller ? r() : navigator.serviceWorker.addEventListener('controllerchange', r)))));
+  await page.waitForTimeout(500);
+  await page.reload(); // así el service worker ya controla la página y guarda todos los archivos
+  await page.getByRole('button', { name: 'Entrar', exact: true }).waitFor();
+  await ctx.setOffline(true);
+  await page.reload();
+  await page.getByRole('heading', { name: 'Sin conexión con el servidor' }).waitFor({ timeout: 15000 });
+  await ctx.close();
 });
 
 test('perfil y cierre de sesión', { skip: !pw }, async () => {

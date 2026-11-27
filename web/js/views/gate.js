@@ -115,3 +115,30 @@ export function renderBlocked(app, { onLogout }) {
     h('div', { class: 'muted', style: { 'text-align': 'center' } }, 'Esta cuenta no tiene permiso para entrar. Si crees que es un error, habla con el administrador.'),
     h('button', { class: 'btn btn-ghost btn-block', onclick: onLogout }, 'Cerrar sesión'))));
 }
+
+/** El servidor de la casa no responde (apagado, reiniciándose o sin internet): la app igual abre y lo explica, y reintenta sola. */
+export function renderOffline(app, { retry }) {
+  document.body.classList.add('offline-page'); // en esta pantalla no hace falta el aviso de arriba (diría lo mismo)
+  const status = h('div', { class: 'hint', 'aria-live': 'polite' });
+  const why = h('div', { class: 'muted', style: { 'text-align': 'center' } });
+  let left = 6, stopped = false;
+  const paint = () => {
+    why.textContent = navigator.onLine === false
+      ? 'Tu aparato no tiene internet. Revisa el Wi-Fi o los datos y vuelve a intentar.'
+      : 'No conseguimos conectar con el servidor de El Búnker. Puede estar apagado o reiniciándose. No es culpa de tu aparato: en unos minutos debería volver.';
+  };
+  paint();
+  const now = () => { if (stopped) return; stopped = true; retry(); };
+  const timer = setInterval(() => {
+    if (!status.isConnected) { clearInterval(timer); stopped = true; return; }
+    left--; paint();
+    if (left <= 0) { status.textContent = 'Reintentando…'; clearInterval(timer); setTimeout(() => { if (status.isConnected) now(); }, 300); return; }
+    status.textContent = `Reintentando en ${left} s…`;
+  }, 1000);
+  status.textContent = `Reintentando en ${left} s…`;
+  window.addEventListener('online', now, { once: true });
+  clear(app).append(h('div', { class: 'gate' }, h('div', { class: 'stack' },
+    logo(), h('div', { class: 'pending-ico' }, icon('wave')),
+    h('h1', { style: { 'text-align': 'center' } }, 'Sin conexión con el servidor'), why, status,
+    h('button', { class: 'btn btn-primary btn-block', onclick: () => { clearInterval(timer); now(); } }, icon('refresh'), 'Reintentar ahora'))));
+}

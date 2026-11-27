@@ -1,5 +1,5 @@
 import { h, icon, clear } from './dom.js';
-import { get, post, patch, onUnauthorized, onMutation, errorText } from './api.js';
+import { get, post, patch, onUnauthorized, onMutation, errorText, isDownStatus, isServerDown } from './api.js';
 import { createRouter, bump, TABS } from './router.js';
 import { openSheet, promptText, toast, errorState, go } from './ui.js';
 import * as player from './player.js';
@@ -7,7 +7,7 @@ import { initVersion, checkForUpdate, appVersion } from './version.js';
 import { pushState, enablePush, disablePush, syncPush, PUSH_HELP } from './push.js';
 import { mountMini } from './playerui.js';
 import { setOnkyoAvailable, resyncOnkyo, onkyoPref } from './onkyoui.js';
-import { renderGate, renderPending, renderBlocked } from './views/gate.js';
+import { renderGate, renderPending, renderBlocked, renderOffline } from './views/gate.js';
 import home from './views/home.js';
 import { explore, lista } from './views/explore.js';
 import { album, artist } from './views/album.js';
@@ -44,6 +44,7 @@ async function logout() {
 }
 
 async function boot() {
+  document.body.classList.remove('offline-page');
   router?.stop(); router = null;
   clearInterval(badgeTimer);
   document.body.classList.remove('has-mini');
@@ -51,6 +52,7 @@ async function boot() {
   try {
     ({ user: me } = await get('/api/me'));
   } catch (e) {
+    if (isDownStatus(e.status)) { renderOffline(app, { retry: boot }); return; } // servidor apagado o sin internet
     if (e.status !== 401) {
       clear(app).append(h('div', { class: 'gate' }, errorState(e, boot)));
       return;
@@ -173,6 +175,22 @@ if (vv) {
   document.addEventListener('focusout', later);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) later(); });
   fit();
+}
+
+// ---- aviso arriba cuando el servidor deja de responder mientras usas la app (y se va solo al volver) ----
+{
+  const bar = h('div', { class: 'net-banner', role: 'status', 'aria-live': 'polite', hidden: true });
+  document.body.append(bar);
+  let probe = null;
+  const text = () => (navigator.onLine === false ? 'Tu aparato no tiene internet.' : 'Sin conexión con el servidor de El Búnker. Puede estar apagado o reiniciándose. Reintentando…');
+  const show = (down) => {
+    bar.hidden = !down; document.body.classList.toggle('net-down', down);
+    if (down) { bar.textContent = text(); }
+    clearInterval(probe); probe = null;
+    if (down) probe = setInterval(() => { bar.textContent = text(); get('/api/auth/config').catch(() => {}); }, 6000); // al contestar, el aviso se quita solo
+  };
+  window.addEventListener('ebs:net', (e) => show(e.detail.down));
+  window.addEventListener('online', () => { if (isServerDown()) get('/api/auth/config').catch(() => {}); });
 }
 
 // ---- pantalla de carga: el logo se ve un momento y luego se desvanece ----

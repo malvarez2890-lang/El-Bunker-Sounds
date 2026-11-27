@@ -515,3 +515,12 @@ select.field { appearance: none; -webkit-appearance: none; }
 .card .cover { box-shadow: 0 6px 18px rgba(0, 0, 0, .45); }
 .gate { background: transparent; }
 @media (orientation: landscape) and (max-height: 520px) { .page { --oy: 0px; } }
+
+/* ---------- Aviso "sin conexión con el servidor" ---------- */
+.net-banner {
+  position: fixed; left: 10px; right: 10px; top: calc(var(--safe-t) + 8px); z-index: 300; max-width: 440px; margin: 0 auto; padding: 10px 14px;
+  border-radius: 14px; background: rgba(60, 22, 26, .92); border: 1px solid rgba(255, 139, 143, .5); color: #ffd9da; font-size: 13.5px; line-height: 1.35; text-align: center;
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); box-shadow: 0 8px 24px rgba(0, 0, 0, .45); animation: fadeIn .2s;
+}
+.net-banner[hidden] { display: none; }
+.offline-page .net-banner { display: none !important; }
