@@ -192,6 +192,7 @@ Las canciones que tienen su WAV en la carpeta se escuchan; las demás aparecen e
 | Síntoma | Qué mirar |
 |---|---|
 | No llega el código al correo | Revisa spam; `docker compose logs app` y confirma `SMTP_PASS` (16 letras sin espacios). |
+| Reinicié el servidor y la app no abre | Corre `./recuperar.sh` (vuelve a levantar Tailscale y la app en orden; no borra nada). Si Tailscale se recrea solo, la app se reinicia con él. Evita recrear solo uno de los dos: la app comparte la red de Tailscale y quedaría pegada a una red que ya no existe. |
 | La dirección no abre desde fuera | En Tailscale, la máquina `musica` debe estar conectada y con Funnel activo (`docker compose logs tailscale`). Revisa el paso 2. |
 | Una canción dice "Preparando audio…" mucho rato | Administración → "Reintentar errores". Si sigue, mira el motivo que aparece ahí. |
 | No aparece música nueva | Administración → "Buscar música nueva". La carpeta debe contener `Artista/<Artista>/...`. |

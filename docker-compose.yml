@@ -19,6 +19,13 @@ services:
     # Sin ONKYO_LAN_IP en .env queda cerrado a tu red (solo 127.0.0.1) y no sirve nada.
     ports:
       - "${ONKYO_LAN_IP:-127.0.0.1}:${ONKYO_LAN_PORT:-8099}:${ONKYO_LAN_PORT:-8099}"
+    # "Sano" solo cuando Tailscale de verdad está conectado (no basta con que el contenedor esté encendido).
+    healthcheck:
+      test: ["CMD", "tailscale", "--socket=/tmp/tailscaled.sock", "status"]
+      interval: 20s
+      timeout: 8s
+      retries: 3
+      start_period: 60s
     restart: unless-stopped
     mem_limit: 128m
 
@@ -27,7 +34,12 @@ services:
     image: bunker-sound-app
     container_name: bunker-sound-app
     network_mode: service:tailscale     # la app solo es visible a través de Tailscale (no abre puertos en tu red)
-    depends_on: [tailscale]
+    # La app comparte la red de Tailscale: espera a que esté conectado, y si Tailscale se reinicia o se recrea, la app se reinicia
+    # con él (si no, se queda pegada a una red que ya no existe y deja de verse).
+    depends_on:
+      tailscale:
+        condition: service_healthy
+        restart: true
     env_file: .env
     environment:
       PORT: "3000"
