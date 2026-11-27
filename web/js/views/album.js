@@ -19,6 +19,7 @@ export async function album(ctx, id) {
     actions));
   if (pending && a.releaseDate) root.append(h('div', { class: 'muted small', style: { 'margin-bottom': '8px', 'text-align': 'center' } }, `Álbum completo el ${fecha(a.releaseDate)}`));
   if (ready < real) root.append(h('div', { class: 'muted small', style: { 'margin-bottom': '8px', 'text-align': 'center' } }, `Preparando audio: ${real - ready} canciones en proceso…`));
+  player.warm(a.tracks.find((t) => t.ready)); // la primera canción ya queda lista en memoria: "Reproducir" suena al instante
   root.append(h('div', { class: 'tracklist' }, ...a.tracks.map((t, i) => trackRow(t, { list: a.tracks, index: i, number: t.trackNo ?? i + 1 }))));
   return root;
 }

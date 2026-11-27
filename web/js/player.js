@@ -173,6 +173,20 @@ function entryFor(t) {
   cache.set(t.id, e);
   return e;
 }
+/** Baja por adelantado una canción (al abrir un álbum): al tocar "Reproducir" ya está en memoria y suena al instante, sin depender de la red,
+ *  aunque bloquees el teléfono o cambies de app justo después (iOS pausa lo que aún no terminó de cargar si la app pasa a segundo plano). */
+const warmed = [];
+export function warm(t) {
+  if (!t || remote || t.ready === false || t.upcoming || cache.has(t.id)) return;
+  entryFor(t).promise.catch(() => {});
+  warmed.push(t.id);
+  while (warmed.length > 3) { // se guardan pocas, para no gastar memoria ni datos
+    const id = warmed.shift();
+    const keep = new Set([st.queue[st.index - 1]?.id, st.queue[st.index]?.id, st.queue[st.index + 1]?.id]);
+    const e = cache.get(id);
+    if (e && !keep.has(id)) { e.controller.abort(); if (e.url) URL.revokeObjectURL(e.url); cache.delete(id); }
+  }
+}
 function trim(keep) {
   for (const [id, e] of cache) {
     if (keep.has(id)) continue;

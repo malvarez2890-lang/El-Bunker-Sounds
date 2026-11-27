@@ -736,6 +736,19 @@ test('apenas tocas una canción suena (por streaming) mientras baja la copia; lu
   await page.unroute('**/api/stream/**');
 });
 
+test('al abrir un álbum, la primera canción queda lista en memoria: "Reproducir" suena de la copia al instante (sin streaming)', { skip: !pw }, async () => {
+  const { page } = admin;
+  await page.goto(`${base}/#/lista/album`); await settled(page);
+  await P(page).locator('.card', { hasText: 'Lasciati Andare' }).click();
+  await page.getByRole('heading', { name: 'Lasciati Andare' }).waitFor();
+  await settled(page);
+  await page.waitForTimeout(1500); // le da tiempo a bajar
+  await P(page).getByRole('button', { name: 'Reproducir', exact: true }).first().click();
+  await page.waitForFunction(() => window.__audios.some((a) => a.src.startsWith('blob:') && !a.dataset.shadow && !a.paused && a.currentTime > 0.2), null, { timeout: 4000 });
+  assert.ok(!(await page.evaluate(() => window.__audios.some((a) => a.src.includes('/api/stream/') && !a.paused))), 'no sonó por streaming');
+  await page.keyboard.press('Escape');
+});
+
 test('novedades: el administrador crea una y aparece arriba en Inicio (destacado más pequeño)', { skip: !pw }, async () => {
   const { page } = admin;
   await page.goto(`${base}/#/admin`); await settled(page);
